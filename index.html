@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tasbeeh">
+<title>Hands-free Tasbeeh</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#EEF1EC;--surface:#FFFFFF;--ink:#14302B;--muted:#5B6F69;--accent:#1F6F5B;--accent-ink:#FFFFFF;--line:#D3DBD5;--warn:#9A5B12}
+@media (prefers-color-scheme:dark){:root{--bg:#0E1A1F;--surface:#16262C;--ink:#E7EFEA;--muted:#8FA6A0;--accent:#7CC4B0;--accent-ink:#0E1A1F;--line:#27393F;--warn:#E0A860}}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:480px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:20px;margin:4px 0 12px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.stage{text-align:center;margin:18px 0 8px}
+.ar{font-family:"Geeza Pro","Noto Naskh Arabic",serif;font-size:40px;line-height:1.6;direction:rtl}
+.tr{color:var(--muted);font-size:15px}
+.ring{position:relative;width:240px;height:240px;margin:14px auto}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:10}
+.ring .bg{stroke:var(--line)}
+.ring .fg{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .25s}
+.ring button{position:absolute;inset:22px;border-radius:50%;border:0;background:var(--surface);color:var(--ink);font:700 64px/1 system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring button small{font:400 14px system-ui;color:var(--muted);margin-top:6px}
+.ring.pulse button{animation:p .3s}
+@keyframes p{50%{transform:scale(1.04)}}
+@media (prefers-reduced-motion:reduce){.ring.pulse button{animation:none}.ring .fg{transition:none}}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:12px 18px;font:inherit;font-size:15px}
+.btn.main{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;min-width:200px}
+.btn.live{background:var(--warn);border-color:var(--warn);color:#fff}
+.status{text-align:center;font-size:14px;color:var(--muted);min-height:44px}
+.meter{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0}
+.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .08s}
+.heard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;min-height:48px;direction:rtl;font-size:20px;color:var(--muted)}
+label.opt{display:flex;align-items:center;gap:10px;font-size:15px;margin:10px 0}
+input[type=number],input[type=text]{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+input[type=number]{width:84px}
+details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+summary{cursor:pointer;color:var(--muted)}
+.test{display:flex;gap:8px;margin-top:10px}
+.test input{flex:1;min-width:0}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Hands-free Tasbeeh</h1>
+<div class="chips" id="chips" role="group" aria-label="Choose tasbeeh"></div>
+<div class="stage"><div class="ar" id="ar"></div><div class="tr" id="tr"></div></div>
+
+<div class="ring" id="ring">
+  <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="44"/><circle class="fg" id="fg" cx="50" cy="50" r="44"/></svg>
+  <button id="tap" aria-label="Tap to count"><span id="count">0</span><small id="of">of 33</small></button>
+</div>
+
+<div class="row"><button class="btn main" id="listen">Start listening</button></div>
+<div class="meter" aria-hidden="true"><i id="lvl"></i></div>
+<div class="status" id="status">First start downloads a ~40 MB speech model (once). After that it works offline.</div>
+<div class="heard" id="heard"></div>
+
+<div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button></div>
+<label class="opt">Target <input type="number" id="target" min="1" max="1000" value="33"></label>
+<label class="opt"><input type="checkbox" id="seq"> After-prayer set: 33 SubhanAllah, 33 Alhamdulillah, 34 Allahu Akbar</label>
+<label class="opt"><input type="checkbox" id="vib" checked> Vibrate on each count</label>
+
+<details>
+  <summary>Test without speaking</summary>
+  <div class="test"><input type="text" id="tin" placeholder="سبحان الله سبحان الله" dir="auto"><button class="btn" id="tgo">Send</button></div>
+</details>
+</main>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
+env.allowLocalModels = false;
+
+function norm(s){
+  return s.replace(/[\u064B-\u065F\u0670\u0640]/g,'')
+    .replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي')
+    .replace(/[^\u0621-\u064A]/g,'');
+}
+const T = [
+  {ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', n:33, re:/سبحانالله(?!وبحمده)/g},
+  {ar:'اَلْحَمْدُ لِلّٰه', tr:'Alhamdulillah', n:33, re:/الحمدلله/g},
+  {ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', n:34, re:/اللهاكبر/g},
+  {ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', n:100, re:/لاالهالاالله/g},
+  {ar:'أَسْتَغْفِرُ اللّٰه', tr:'Astaghfirullah', n:100, re:/استغفرالله/g},
+  {ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', n:100, re:/سبحانالله?وبحمده/g},
+  {ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', n:100, re:/لاحولولاقوهالابالله/g},
+  {ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', n:100, re:/صلي?عليمحمد|صلياللهعليهوسلم/g}
+];
+const SEQ=[0,1,2];
+let cur=0, counts=T.map(()=>0), targets=T.map(t=>t.n);
+const $=id=>document.getElementById(id);
+const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
+
+function renderChips(){
+  $('chips').innerHTML='';
+  T.forEach((t,i)=>{const b=document.createElement('button');b.className='chip';b.textContent=t.tr;b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
+}
+function select(i){cur=i;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();}
+function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));}
+function add(k){
+  if(!k)return;
+  counts[cur]=Math.max(0,counts[cur]+k);draw();
+  const r=$('ring');r.classList.remove('pulse');void r.offsetWidth;r.classList.add('pulse');
+  try{if($('vib').checked&&k>0&&navigator.vibrate)navigator.vibrate(30);}catch(e){}
+  if(counts[cur]>=targets[cur]&&k>0)done();
+}
+function done(){
+  try{navigator.vibrate&&navigator.vibrate([120,60,120]);}catch(e){}
+  if($('seq').checked){const p=SEQ.indexOf(cur);if(p>=0&&p<SEQ.length-1){$('status').textContent='Done. Moving to '+T[SEQ[p+1]].tr;select(SEQ[p+1]);return;}}
+  $('status').textContent='Target reached.';
+}
+const matches=text=>{const m=norm(text).match(T[cur].re);return m?m.length:0;};
+
+// ---- On-device speech: Whisper (tiny) running in the page ----
+let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null;
+async function loadModel(){
+  if(asr)return;
+  $('status').textContent='Loading speech model…';
+  asr=await pipeline('automatic-speech-recognition','Xenova/whisper-tiny',{
+    dtype:'q8',
+    progress_callback:p=>{if(p.status==='progress'&&p.progress!=null)$('status').textContent='Downloading model… '+Math.round(p.progress)+'%';}
+  });
+}
+function resample(buf,from,to){
+  if(from===to)return buf;
+  const r=from/to,n=Math.floor(buf.length/r),out=new Float32Array(n);
+  for(let i=0;i<n;i++){const x=i*r,i0=Math.floor(x),i1=Math.min(i0+1,buf.length-1);out[i]=buf[i0]+(buf[i1]-buf[i0])*(x-i0);}
+  return out;
+}
+// Simple voice-activity segmenter: collects one utterance, then transcribes it once.
+let seg=[],segLen=0,speaking=false,silentFor=0,noise=0.005,pre=[];
+const queue=[];let busy=false;
+function onAudio(e){
+  const d=new Float32Array(e.inputBuffer.getChannelData(0));
+  const sr=ctx.sampleRate,dur=d.length/sr;
+  let s=0;for(let i=0;i<d.length;i++)s+=d[i]*d[i];
+  const rms=Math.sqrt(s/d.length);
+  $('lvl').style.width=Math.min(100,rms*600)+'%';
+  const thr=Math.max(0.012,noise*3);
+  if(rms>thr){
+    if(!speaking){speaking=true;seg=pre.slice();segLen=seg.reduce((a,b)=>a+b.length,0)/sr;}
+    seg.push(d);segLen+=dur;silentFor=0;
+  }else{
+    noise=noise*0.95+rms*0.05;
+    if(speaking){seg.push(d);segLen+=dur;silentFor+=dur;}
+    else{pre.push(d);if(pre.length>3)pre.shift();}
+  }
+  if(speaking&&(silentFor>=0.7||segLen>8)){
+    const all=new Float32Array(seg.reduce((a,b)=>a+b.length,0));let o=0;for(const b of seg){all.set(b,o);o+=b.length;}
+    speaking=false;seg=[];segLen=0;silentFor=0;pre=[];
+    if(all.length/sr>0.4){queue.push(resample(all,sr,16000));pump();}
+  }
+}
+async function pump(){
+  if(busy)return;busy=true;
+  while(queue.length){
+    const a=queue.shift();
+    try{
+      const out=await asr(a,{language:'arabic',task:'transcribe'});
+      const text=(out.text||'').trim();
+      $('heard').textContent=text;
+      const m=matches(text);
+      if(m){add(m);} 
+    }catch(e){$('status').textContent='Recognition error: '+e.message;}
+  }
+  busy=false;
+}
+async function start(){
+  try{
+    $('listen').disabled=true;
+    await loadModel();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true}});
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    await ctx.resume();
+    const src=ctx.createMediaStreamSource(stream);
+    proc=ctx.createScriptProcessor(4096,1,1);
+    proc.onaudioprocess=onAudio;
+    src.connect(proc);proc.connect(ctx.destination);
+    try{wake=await navigator.wakeLock.request('screen');}catch(e){}
+    listening=true;
+    $('listen').textContent='Stop listening';$('listen').classList.add('live');
+    $('status').textContent='Listening. Recite '+T[cur].tr+', pausing briefly between rounds. Keep the screen on.';
+  }catch(e){
+    $('status').textContent=(e.name==='NotAllowedError'?'Microphone permission denied. On iPhone: Settings → Safari → Microphone, or reload and tap Allow.':'Could not start: '+e.message);
+  }
+  $('listen').disabled=false;
+}
+function stop(msg){
+  listening=false;
+  try{proc&&proc.disconnect();ctx&&ctx.close();stream&&stream.getTracks().forEach(t=>t.stop());wake&&wake.release();}catch(e){}
+  speaking=false;seg=[];pre=[];$('lvl').style.width='0';
+  $('listen').textContent='Start listening';$('listen').classList.remove('live');
+  $('status').textContent=typeof msg==='string'?msg:'Stopped.';
+}
+$('listen').onclick=()=>listening?stop():start();
+$('tap').onclick=()=>add(1);
+$('undo').onclick=()=>add(-1);
+$('reset').onclick=()=>{counts[cur]=0;draw();$('status').textContent='Reset.';};
+$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();};
+$('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
+select(0);
+</script>
+</body>
+</html>
