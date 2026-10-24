@@ -26,6 +26,7 @@ h1{font-size:20px;margin:4px 0 12px}
 .arwrap .ar{min-width:0}
 .arwrap .ar.long{flex:1}
 .say{flex:none;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--accent);display:flex;align-items:center;justify-content:center;padding:0}
+.say[hidden]{display:none}
 .say svg{width:22px;height:22px}
 .say .stop,.say.on .play{display:none}
 .say.on .stop{display:block}
@@ -277,7 +278,7 @@ const P = {
   sys:{ar:'اللّٰهُمَّ أَنْتَ رَبِّي لَا إِلٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ', tr:'Sayyid al-Istighfar', en:'The best way of seeking forgiveness: O Allah, You are my Lord, there is no god but You…'},
   rdt:{ar:'رَضِيتُ بِاللّٰهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا', tr:'Raditu billahi rabba', en:'I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet'},
   bsm:{ar:'بِسْمِ اللّٰهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيم', tr:'Bismillahilladhi la yadurru', en:'In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing'},
-  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You'},
+  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ. اللّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You. O Allah, I seek refuge in You from disbelief and poverty, and from the punishment of the grave; there is no god but You'},
   hsy:{ar:'حَسْبِيَ اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ، وَهُوَ رَبُّ الْعَرْشِ الْعَظِيم', tr:'Hasbiyallahu la ilaha illa huwa', en:'Allah is sufficient for me; there is no god but Him. In Him I trust, and He is Lord of the Mighty Throne'},
   adk:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ، عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ', tr:'SubhanAllahi wa bihamdihi ‘adada khalqihi', en:'Glory be to Allah and praise be to Him, as many as His creation, as much as pleases Him, the weight of His Throne and the ink of His words'},
   kal:{ar:'أَعُوذُ بِكَلِمَاتِ اللّٰهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ', tr:'A’udhu bi kalimatillahit-tammat', en:'I seek refuge in the perfect words of Allah from the evil of what He has created'},
@@ -389,7 +390,7 @@ function select(i){
   if(saying)sayStop();
   cur=i;const t=T[i];openCats.add(t.cat);
   $('delT').hidden=!t.custom;$('target').value=targets[i];$('ar').textContent=t.ar;$('ar').classList.toggle('long',t.key.length>40);
-  $('tr').textContent=t.tr;$('en').textContent=(t.en||'')+(t.key.length>60?' · Tap the counter for this one; it is too long to count by voice.':'');
+  $('say').hidden=!sayUrls(t);$('tr').textContent=t.tr;$('en').textContent=(t.en||'')+(t.key.length>60?' · Tap the counter for this one; it is too long to count by voice.':'');
   try{localStorage.setItem('sel',ek(t));}catch(e){}
   renderList();draw();vinfo();
   if(mode==='count'){setEngine();$('status').textContent=listenMsg();if(engine==='whisper'&&!asr)loadModel().then(()=>{$('status').textContent=listenMsg();pump();}).catch(e=>$('status').textContent='Could not load model: '+e.message);}
@@ -732,39 +733,34 @@ $('vuse').onchange=()=>{try{localStorage.setItem('vuse',$('vuse').checked?'1':'0
 $('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localStorage.setItem('vsens',$('vsens').value);}catch(e){}if(det)det.thr=calibrate(T[cur].tr).thr*sens();vinfo();};
 try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
 // ---- Pronunciation ----
-// Quran passages (q: [[surah, ayah], ...]) play Mishary Alafasy's recitation from everyayah.com;
-// everything else is read by the phone's Arabic voice. Listening is paused meanwhile.
+// Quran passages (q: [[surah, ayah], ...]) play Mishary Alafasy's recitation from everyayah.com (needs a connection).
+// Other adhkar with a recording (au) play Hamad Al-Duraihim's Hisn al-Muslim recording from audio/ in this repo.
+// Phrases without either have no speaker button. Listening is paused while audio plays.
 let saying=false,muteUntil=0;const sayAudio=new Audio();
 const pad3=n=>String(n).padStart(3,'0');
 function sayIcon(){$('say').classList.toggle('on',saying);$('say').setAttribute('aria-label',saying?'Stop':'Listen to how it is said');}
 function sayStop(){
   saying=false;muteUntil=Date.now()+400;sayIcon();
-  try{speechSynthesis.cancel();}catch(e){}
   sayAudio.onended=sayAudio.onerror=null;sayAudio.pause();
   if(mode==='count')setEngine(); // start matching fresh after the gap
 }
-function arVoice(){const v=speechSynthesis.getVoices();return v.find(x=>/^ar[-_]SA/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang));}
-function speak(text){
-  if(!('speechSynthesis' in window)){$('status').textContent='This browser cannot read text aloud.';return sayStop();}
-  const u=new SpeechSynthesisUtterance(text.replace(/ﷺ/g,''));u.lang='ar-SA';u.rate=0.8;
-  const v=arVoice();if(v)u.voice=v;
-  else $('status').textContent='No Arabic voice found. On iPhone: Settings → Accessibility → Spoken Content → Voices → Arabic.';
-  u.onend=u.onerror=()=>{if(saying)sayStop();};
-  speechSynthesis.cancel();speechSynthesis.speak(u);
-}
-function recite(list,i){
+function playList(urls,i){
   if(!saying)return;
-  if(i>=list.length)return sayStop();
-  const [su,ay]=list[i];
-  sayAudio.onended=()=>recite(list,i+1);
-  sayAudio.onerror=()=>{if(!saying)return;sayAudio.onended=sayAudio.onerror=null;$('status').textContent='Could not load the recitation (offline?). Reading it with the phone voice instead.';speak(T[cur].ar);};
-  sayAudio.src='https://everyayah.com/data/Alafasy_128kbps/'+pad3(su)+pad3(ay)+'.mp3';
+  if(i>=urls.length)return sayStop();
+  sayAudio.onended=()=>playList(urls,i+1);
+  sayAudio.onerror=()=>{if(!saying)return;$('status').textContent='Could not load the recording. Check your connection and try again.';sayStop();};
+  sayAudio.src=urls[i];
   sayAudio.play().catch(()=>sayAudio.onerror&&sayAudio.onerror());
+}
+function sayUrls(t){
+  if(t.au)return [t.au];
+  if(t.q)return t.q.map(([su,ay])=>'https://everyayah.com/data/Alafasy_128kbps/'+pad3(su)+pad3(ay)+'.mp3');
+  return null;
 }
 $('say').onclick=()=>{
   if(saying)return sayStop();
-  saying=true;sayIcon();const t=T[cur];
-  if(t.q)recite(t.q,0);else speak(t.ar);
+  const u=sayUrls(T[cur]);if(!u)return;
+  saying=true;sayIcon();playList(u,0);
 };
 
 // Corrections while counting by voice: offer to learn from them (never automatic, so a cough isn't learned)

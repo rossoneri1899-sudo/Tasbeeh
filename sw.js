@@ -14,6 +14,8 @@ self.addEventListener('activate',e=>{
 self.addEventListener('fetch',e=>{
   const req=e.request;if(req.method!=='GET')return;
   const url=new URL(req.url);
+  // Recordings are left to the browser: Safari's media player needs range (206) responses, which this cache doesn't produce
+  if(url.origin===location.origin&&url.pathname.includes('/audio/'))return;
   if(url.origin===location.origin)e.respondWith(networkFirst(req,url));
   else if(url.hostname==='cdn.jsdelivr.net')e.respondWith(cacheFirst(req));
 });
