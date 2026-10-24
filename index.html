@@ -64,6 +64,16 @@ summary{cursor:pointer;color:var(--muted)}
 <div class="meter" aria-hidden="true"><i id="lvl"></i></div>
 <div class="status" id="status">First start downloads a ~40 MB speech model (once). After that it works offline.</div>
 <div class="heard" id="heard"></div>
+<div id="learn" hidden>
+  <div class="tr" style="text-align:center">Did it miss one? Say how many you recited and it will learn how it hears you.</div>
+  <div class="row">
+    <button class="btn" id="lm" aria-label="Fewer">−</button>
+    <strong id="ln" style="min-width:28px;text-align:center;align-self:center">1</strong>
+    <button class="btn" id="lp" aria-label="More">+</button>
+    <button class="btn main" id="learnBtn" style="min-width:0">Count it &amp; learn</button>
+  </div>
+</div>
+<div class="row"><button class="btn" id="clearAl">Forget learned spellings for this tasbeeh</button></div>
 
 <div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button></div>
 <label class="opt">Target <input type="number" id="target" min="1" max="1000" value="33"></label>
@@ -111,6 +121,8 @@ const T = [
 ];
 try{JSON.parse(localStorage.getItem('customT')||'[]').forEach(c=>T.push({ar:c.ar,tr:c.name,n:c.n,custom:true,key:norm(c.ar)}));}catch(e){}
 function saveCustom(){try{localStorage.setItem('customT',JSON.stringify(T.filter(t=>t.custom).map(t=>({ar:t.ar,name:t.tr,n:t.n}))));}catch(e){}}
+let aliases={};try{aliases=JSON.parse(localStorage.getItem('aliases')||'{}');}catch(e){}
+function saveAliases(){try{localStorage.setItem('aliases',JSON.stringify(aliases));}catch(e){}}
 const SEQ=[0,1,2];
 let lastHeard='';
 let cur=0, counts=T.map(()=>0), targets=T.map(t=>t.n);
@@ -150,7 +162,13 @@ function fuzzy(text,key){
   }
   return c;
 }
-const matches=text=>{const t=T[cur];if(t.custom)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;};
+function baseMatches(text){const t=T[cur];if(t.custom)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;}
+// If the built-in pattern finds nothing, try spellings this user has taught it
+function matches(text){
+  const b=baseMatches(text);if(b)return b;
+  let best=0;for(const a of (aliases[T[cur].tr]||[]))best=Math.max(best,fuzzy(text,a));
+  return best;
+}
 
 // ---- On-device speech: Whisper (tiny) running in the page ----
 let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null;
@@ -200,7 +218,7 @@ async function pump(){
     try{
       const out=await asr(a,{language:'arabic',task:'transcribe'});
       const text=(out.text||'').trim();
-      $('heard').textContent=text;lastHeard=text;
+      $('heard').textContent=text;lastHeard=text;$('learn').hidden=!text;
       const m=matches(text);
       if(m){add(m);} 
     }catch(e){$('status').textContent='Recognition error: '+e.message;}
@@ -240,6 +258,21 @@ $('undo').onclick=()=>add(-1);
 $('reset').onclick=()=>{counts[cur]=0;draw();$('status').textContent='Reset.';};
 $('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();};
 $('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
+let learnN=1;
+$('lm').onclick=()=>{learnN=Math.max(1,learnN-1);$('ln').textContent=learnN;};
+$('lp').onclick=()=>{learnN=Math.min(20,learnN+1);$('ln').textContent=learnN;};
+$('learnBtn').onclick=()=>{
+  const k=norm(lastHeard);
+  // one recitation is roughly 1/n of what it heard, so keep the first slice as the learned spelling
+  const a=k.slice(0,Math.round(k.length/learnN));
+  if(a.length<5){$('status').textContent='That was too short to learn from. Try again.';return;}
+  const key=T[cur].tr;aliases[key]=aliases[key]||[];
+  if(!aliases[key].includes(a)){aliases[key].push(a);if(aliases[key].length>20)aliases[key].shift();}
+  saveAliases();add(learnN);
+  $('learn').hidden=true;lastHeard='';learnN=1;$('ln').textContent=1;
+  $('status').textContent='Counted and learned. It now knows '+aliases[key].length+' way(s) you say '+key+'.';
+};
+$('clearAl').onclick=()=>{delete aliases[T[cur].tr];saveAliases();$('status').textContent='Cleared learned spellings for '+T[cur].tr+'.';};
 $('useHeard').onclick=()=>{
   if(lastHeard){$('cp').value=lastHeard;$('status').textContent='Phrase filled in. Edit it if it looks wrong, then save.';}
   else $('status').textContent='Start listening and recite the phrase first.';
