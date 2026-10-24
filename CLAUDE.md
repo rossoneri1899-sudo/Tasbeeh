@@ -8,11 +8,12 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 - **Hosted on GitHub Pages** from the `main` branch root. Deploying = committing `index.html` to `main`.
 - **On-device only.** No audio may leave the phone. Do not add server-side speech APIs.
 - **Do not use the Web Speech API** (`SpeechRecognition` / `webkitSpeechRecognition`). It is unavailable or blocked on iPhone; this was the first approach and it failed.
-- **Single self-contained file.** Keep markup, styles and script in `index.html`. External scripts only from a CDN.
-- The owner tests on their phone and reports back. There is no automated test setup, so keep changes small and easy to verify by hand. After each deploy, remind them to reload with a new `?v=N` query string, because Safari caches the old page.
+- **Single self-contained file.** Keep markup, styles and script in `index.html`. External scripts only from a CDN. Exception: files browsers require to be separate — `sw.js` (service worker), `manifest.webmanifest`, and the icons `icon-180.png` / `icon-192.png` / `icon-512.png`.
+- The owner tests on their phone and reports back. There is no automated test setup, so keep changes small and easy to verify by hand. After each deploy, remind them to reload with a new `?v=N` query string, because Safari caches the old page. (The service worker is network-first, so this matters less now, but it is still the safe advice.)
 
 ## How it works now
 
+- **Offline / home screen:** `manifest.webmanifest` + `apple-touch-icon` (prayer-bead icon). `sw.js` caches the page network-first (4 s timeout, ignores `?v=N`) and `cdn.jsdelivr.net` cache-first; it precaches the transformers.js entry. Whisper model files are cached by transformers.js itself (`transformers-cache`), which the SW never deletes. Bump `CACHE` in `sw.js` when its caching rules change. transformers.js is loaded with a dynamic `import()` inside `loadModel()`, so voice-sample counting works even if the CDN is unreachable.
 - **Speech engine:** Whisper tiny (`Xenova/whisper-tiny`, q8) running in the page via transformers.js (`@huggingface/transformers@3.5.1` from jsDelivr). ~40 MB download on first use, cached by the browser after that.
 - **Audio capture:** `getUserMedia` → `AudioContext` → `ScriptProcessorNode` (4096 frames). Resampled to 16 kHz before transcription.
 - **Voice-activity segmenter:** RMS energy against an adaptive noise floor (`thr = max(0.012, noise*3)`). Keeps ~3 buffers of pre-roll. A segment is sent to Whisper after `PAUSE = 0.45` s of quiet or when it reaches 6 s. Segments under 0.4 s are dropped. Segments queue and are transcribed one at a time.
@@ -48,4 +49,4 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 2. Reduce latency: move inference to a Web Worker so the UI never stalls; try WebGPU where available.
 3. Personal voice samples: **step 1 (recording) and step 2 (DTW template matching) are built.** If DTW isn't accurate enough on the owner's voice, step 3 is a small pretrained audio-embedding model plus a classifier trained in the browser on the stored samples. A further idea: save missed/false segments as extra positive/negative samples.
 4. Session history (counts per day) stored locally.
-5. Add a web app manifest and icon so the home-screen version looks and behaves more like an app.
+5. ~~Add a web app manifest and icon~~ Done, with offline support. Existing home-screen installs must be removed and re-added to pick up the new icon.

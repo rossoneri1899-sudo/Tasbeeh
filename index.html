@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tasbeeh">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#1F6F5B">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <title>Hands-free Tasbeeh</title>
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -111,9 +116,13 @@ summary{cursor:pointer;color:var(--muted)}
 </details>
 </main>
 
+<script>
+// Offline support: caches the page so it opens without a connection (see sw.js)
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
 <script type="module">
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
-env.allowLocalModels = false;
+// The speech library is loaded only when Whisper is needed, so voice-sample counting works even if the CDN can't be reached.
+const TJS="https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
 
 function norm(s){
   return s.replace(/[\u064B-\u065F\u0670\u0640]/g,'')
@@ -352,6 +361,8 @@ function listenMsg(){
 async function loadModel(){
   if(asr)return;
   $('status').textContent='Loading speech model…';
+  const {pipeline,env}=await import(TJS);
+  env.allowLocalModels=false;
   asr=await pipeline('automatic-speech-recognition','Xenova/whisper-tiny',{
     dtype:'q8',
     progress_callback:p=>{if(p.status==='progress'&&p.progress!=null)$('status').textContent='Downloading model… '+Math.round(p.progress)+'%';}
