@@ -118,6 +118,7 @@ details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
 summary{cursor:pointer;color:var(--muted)}
 .test{display:flex;gap:8px;margin-top:10px}
 .test input{flex:1;min-width:0}
+.vfix{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:10px 0;font-size:15px;text-align:center}
 .update:not([hidden]){display:block}
 .update{width:100%;margin:0 0 10px;border:0;border-radius:12px;padding:12px;background:var(--accent);color:var(--accent-ink);font:600 15px system-ui}
 .ver{text-align:center;font-size:12px;color:var(--muted);margin-top:24px}
@@ -169,6 +170,10 @@ summary{cursor:pointer;color:var(--muted)}
 <div class="meter" aria-hidden="true"><i id="lvl"></i></div>
 <div class="status" id="status">First start downloads a ~40 MB speech model (once). After that it works offline.</div>
 <div class="heard" id="heard"></div>
+<div id="vfix" class="vfix" hidden role="status">
+  <div id="vfixMsg"></div>
+  <div class="row" style="margin:8px 0 0"><button class="btn" id="vfixNo">No thanks</button><button class="btn main" id="vfixYes" style="min-width:0"></button></div>
+</div>
 <div id="learn" hidden>
   <div class="tr" style="text-align:center">Did it miss one? Say how many you recited and it will learn how it hears you.</div>
   <div class="row">
@@ -220,7 +225,7 @@ summary{cursor:pointer;color:var(--muted)}
 <script>
 // Bump on every deploy. The page compares it with the live copy whenever it opens or comes back to the foreground,
 // because iOS resumes home-screen apps from memory instead of reloading them.
-const APP_VERSION='7';
+const APP_VERSION='8';
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{}));
 async function checkUpdate(){
   try{
@@ -526,10 +531,11 @@ function calibrate(name){
   const neg=[];
   for(const nm of new Set(T.map(t=>t.tr))){if(nm===name)continue;const k=norm(T.find(t=>t.tr===nm).ar);if(key&&(k.includes(key)||key.includes(k)))continue;neg.push(...(samples[nm]||[]));}
   let minNeg=Infinity;
-  for(const s of neg.slice(-40))for(const o of own)minNeg=Math.min(minNeg,bestScore(o.f.map(q=>q.c),s.f));
+  for(const s of [...(samples[name+NEG]||[]),...neg.slice(-40)])for(const o of own)minNeg=Math.min(minNeg,bestScore(o.f.map(q=>q.c),s.f));
   if(minNeg<thr)thr=Math.max(pct(pos,0.5)*1.05,minNeg*0.95);
   return cal[name]={thr,lo:pos[0],hi:pos[pos.length-1],n:own.length,minNeg};
 }
+const NEG='#not'; // samples[name+NEG]: sounds the user said were wrongly counted as `name`
 function sens(){return parseFloat($('vsens').value)||1;}
 function vinfo(){
   const name=T[cur].tr,n=(samples[name]||[]).length;
@@ -537,11 +543,20 @@ function vinfo(){
   if(!n){$('vinfo').textContent='No voice samples for '+name+' yet.';return;}
   if(n<MINS){$('vinfo').textContent=name+': '+n+' sample'+(n>1?'s':'')+'. Record at least '+MINS+' to count by voice.';return;}
   const c=calibrate(name);
-  $('vinfo').textContent=name+': '+n+' samples. Your samples match each other at '+c.lo.toFixed(1)+'–'+c.hi.toFixed(1)+'; it counts anything under '+(c.thr*sens()).toFixed(1)+'.'+(c.minNeg<Infinity?' Closest other tasbeeh: '+c.minNeg.toFixed(1)+'.':'');
+  const nn=(samples[name+NEG]||[]).length;
+  $('vinfo').textContent=name+': '+n+' samples'+(nn?' and '+nn+' "not this" sound'+(nn>1?'s':''):'')+'. Your samples match each other at '+c.lo.toFixed(1)+'–'+c.hi.toFixed(1)+'; it counts anything under '+(c.thr*sens()).toFixed(1)+'.'+(c.minNeg<Infinity?' Closest wrong sound: '+c.minNeg.toFixed(1)+'.':'');
 }
 
 // Live detector: runs every template frame by frame, counts at the best (lowest) score once it stops improving.
 let det=null,vbuf=new Float32Array(0),vthr=0.012;
+// Last 10 s of 16 kHz audio, so a missed or wrong count can be saved as a sample. Frame t starts at sample t*HOP.
+const RING=SR*10;let ring=new Float32Array(RING),vpos=0;
+function clip(f0,f1){
+  const a=f0*HOP,b=Math.min(f1*HOP+FL,vpos);
+  if(a<vpos-RING||b<=a)return null;
+  const out=new Float32Array(b-a);for(let i=a;i<b;i++)out[i-a]=ring[i%RING];return out;
+}
+let lastMiss=null,lastHit=null; // {x: audio, at: time}
 function makeDet(name){
   const c=calibrate(name);
   return {tp:samples[name].map(s=>newPath(s.f.map(q=>q.c))),thr:c.thr*sens(),t:0,cand:null,last:-1,voiced:new Uint8Array(1024),act:false,sil:0,min:Infinity,fired:false};
@@ -552,21 +567,26 @@ function detFrame(fr){
   d.voiced[t&1023]=on?1:0;
   let best=Infinity,bs=0;
   for(const p of d.tp){const [s,st]=step(p,fr.c,t);if(s<best){best=s;bs=st;}}
-  if(on){d.act=true;d.sil=0;}else d.sil++;
+  if(on){if(!d.act)d.run=t;d.act=true;d.sil=0;}else d.sil++;
   if(d.act&&best<d.min)d.min=best;
-  if(best<d.thr&&bs>d.last&&voicedFrac(bs,t)>=0.5&&(!d.cand||best<d.cand.s))d.cand={s:best,t};
+  if(best<d.thr&&bs>d.last&&voicedFrac(bs,t)>=0.5&&(!d.cand||best<d.cand.s))d.cand={s:best,t,st:bs};
   if(d.cand&&t-d.cand.t>=12){
     const c=d.cand;d.cand=null;d.last=c.t;d.fired=true;
     for(const p of d.tp)for(let i=1;i<p.D.length;i++)if(p.S[i]<=c.t)p.D[i]=Infinity;
+    lastHit={x:clip(c.st,c.t),at:Date.now()};lastMiss=null;hideFix();
     add(1);$('status').textContent='Counted by voice (match '+c.s.toFixed(1)+', limit '+d.thr.toFixed(1)+').';
   }
   if(d.act&&d.sil>=50){
-    if(!d.fired&&d.min<d.thr*1.5)$('status').textContent='Heard something close but not counted (match '+d.min.toFixed(1)+', limit '+d.thr.toFixed(1)+'). If that was it, raise sensitivity or record more samples.';
+    if(!d.fired){
+      lastMiss={x:clip(Math.max(0,d.run-10),t-50),at:Date.now()};
+      if(d.min<d.thr*1.5)$('status').textContent='Heard something close but not counted (match '+d.min.toFixed(1)+', limit '+d.thr.toFixed(1)+'). If that was it, tap the counter to count it and teach it.';
+    }
     d.act=false;d.fired=false;d.min=Infinity;
   }
 }
 function feedVoice(x){
   const b=new Float32Array(vbuf.length+x.length);b.set(vbuf);b.set(x,vbuf.length);
+  for(let i=0;i<x.length;i++)ring[(vpos+i)%RING]=x[i];vpos+=x.length;
   let o=0;for(;o+FL<=b.length;o+=HOP)detFrame(frame(b,o));
   vbuf=b.slice(o);
 }
@@ -582,7 +602,7 @@ async function onEnrollSegment(x){
 // ---- On-device speech: Whisper (tiny) running in the page ----
 let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null, mode='off', engine='whisper';
 function engineFor(i){return $('vuse').checked&&(samples[T[i].tr]||[]).length>=MINS?'voice':'whisper';}
-function setEngine(){engine=engineFor(cur);vbuf=new Float32Array(0);det=engine==='voice'?makeDet(T[cur].tr):null;}
+function setEngine(){engine=engineFor(cur);vbuf=new Float32Array(0);vpos=0;lastMiss=lastHit=null;hideFix();det=engine==='voice'?makeDet(T[cur].tr):null;}
 function listenMsg(){
   return engine==='voice'?'Listening with your voice samples. Recite '+T[cur].tr+'. Keep the screen on.'
     :'Listening. Recite '+T[cur].tr+', pausing briefly between rounds. Keep the screen on.';
@@ -697,12 +717,42 @@ $('vplay').onclick=()=>{
   b.getChannelData(0).set(s.x);const src=c.createBufferSource();src.buffer=b;src.connect(c.destination);src.onended=()=>c.close();src.start();
 };
 $('vdel').onclick=async()=>{const name=T[cur].tr,s=(samples[name]||[]).at(-1);if(!s)return;await dropSamples(name,[s]);vinfo();$('status').textContent='Deleted the last sample.';};
-$('vclr').onclick=async()=>{const name=T[cur].tr;if(!(samples[name]||[]).length||!confirm('Delete all voice samples for '+name+'?'))return;await dropSamples(name,samples[name].slice());vinfo();$('status').textContent='Deleted all voice samples for '+name+'.';};
+$('vclr').onclick=async()=>{const name=T[cur].tr;if(!(samples[name]||[]).length||!confirm('Delete all voice samples for '+name+'?'))return;await dropSamples(name,samples[name].slice());if(samples[name+NEG])await dropSamples(name+NEG,samples[name+NEG].slice());vinfo();$('status').textContent='Deleted all voice samples for '+name+'.';};
 $('vuse').onchange=()=>{try{localStorage.setItem('vuse',$('vuse').checked?'1':'0');}catch(e){}};
 $('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localStorage.setItem('vsens',$('vsens').value);}catch(e){}if(det)det.thr=calibrate(T[cur].tr).thr*sens();vinfo();};
 try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
-$('tap').onclick=()=>add(1);
-$('undo').onclick=()=>add(-1);
+// Corrections while counting by voice: offer to learn from them (never automatic, so a cough isn't learned)
+let fixTimer=null,fixSave=null;
+function hideFix(){$('vfix').hidden=true;clearTimeout(fixTimer);fixSave=null;}
+function offerFix(msg,btn,save){
+  $('vfixMsg').textContent=msg;$('vfixYes').textContent=btn;fixSave=save;$('vfix').hidden=false;
+  clearTimeout(fixTimer);fixTimer=setTimeout(hideFix,20000);
+}
+function usable(c){if(!c||!c.x||Date.now()-c.at>15000)return null;const x=trim(c.x),d=x.length/SR;return d>=0.25&&d<=4?x:null;}
+$('tap').onclick=()=>{
+  add(1);
+  if(mode!=='count'||engine!=='voice')return;
+  // also catch a phrase that is still trailing off (no 0.5 s pause yet)
+  if(det&&det.act&&!det.fired&&!usable(lastMiss))lastMiss={x:clip(Math.max(0,det.run-10),det.t-1),at:Date.now()};
+  const x=usable(lastMiss);if(!x)return;
+  const name=T[cur].tr;
+  offerFix('Missed one? Save the last sound ('+(x.length/SR).toFixed(1)+' s) as a sample of '+name+' so it catches it next time.','Save sample',async()=>{
+    lastMiss=null;await saveSample(name,x);if(mode==='count')setEngine();vinfo();
+    $('status').textContent='Saved. '+name+' now has '+samples[name].length+' samples.';
+  });
+};
+$('undo').onclick=()=>{
+  add(-1);
+  if(mode!=='count'||engine!=='voice')return;
+  const x=usable(lastHit);if(!x)return;
+  const name=T[cur].tr;
+  offerFix('Counted by mistake? Teach it that the last sound was not '+name+'.','Teach it',async()=>{
+    lastHit=null;await saveSample(name+NEG,x);if(mode==='count')setEngine();vinfo();
+    $('status').textContent='Got it. It will be stricter about sounds like that.';
+  });
+};
+$('vfixYes').onclick=async()=>{const f=fixSave;hideFix();if(f)await f();};
+$('vfixNo').onclick=hideFix;
 $('reset').onclick=()=>{counts[cur]=0;draw();saveProgress();renderList();$('status').textContent='Reset.';};
 $('resetCat').onclick=()=>{const cat=T[cur].cat;T.forEach((t,i)=>{if(t.cat===cat)counts[i]=0;});draw();saveProgress();renderList();$('status').textContent='Reset all of '+CATS.find(c=>c.id===cat).name+'.';};
 $('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();saveProgress();renderList();};
@@ -734,7 +784,7 @@ $('addT').onclick=()=>{
 };
 $('delT').onclick=()=>{
   if(!T[cur].custom)return;
-  if(samples[T[cur].tr])dropSamples(T[cur].tr,samples[T[cur].tr].slice());
+  for(const k of [T[cur].tr,T[cur].tr+NEG])if(samples[k])dropSamples(k,samples[k].slice());
   T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();saveProgress();
   const m=T.findIndex(t=>t.cat==='mine');select(m>=0?m:0);$('status').textContent='Deleted.';
 };
