@@ -5,7 +5,7 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 ## Constraints (read first)
 
 - **The owner uses an iPhone and has no Mac.** A native iOS app is off the table for now. Everything must work as a web page in iOS Safari.
-- **Hosted on GitHub Pages** from the `main` branch root. Deploying = committing `index.html` to `main`.
+- **Hosted on GitHub Pages** from the `main` branch root. Deploying = committing `index.html` to `main`. **Bump `APP_VERSION` in `index.html` on every deploy**: the page fetches the live copy (no-store) on launch and whenever it returns to the foreground, and shows a "new version, tap to update" banner if the number differs. This exists because iOS resumes home-screen apps from memory instead of reloading them. The version is shown at the bottom of the page, so ask the owner which number they see when an update seems missing.
 - **On-device only.** No audio may leave the phone. Do not add server-side speech APIs.
 - **Do not use the Web Speech API** (`SpeechRecognition` / `webkitSpeechRecognition`). It is unavailable or blocked on iPhone; this was the first approach and it failed.
 - **Single self-contained file.** Keep markup, styles and script in `index.html`. External scripts only from a CDN. Exception: files browsers require to be separate — `sw.js` (service worker), `manifest.webmanifest`, and the icons `icon-180.png` / `icon-192.png` / `icon-512.png`.
@@ -13,7 +13,7 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 
 ## How it works now
 
-- **Offline / home screen:** `manifest.webmanifest` + `apple-touch-icon` (prayer-bead icon). `sw.js` caches the page network-first (4 s timeout, ignores `?v=N`) and `cdn.jsdelivr.net` cache-first; it precaches the transformers.js entry. Whisper model files are cached by transformers.js itself (`transformers-cache`), which the SW never deletes. Bump `CACHE` in `sw.js` when its caching rules change. transformers.js is loaded with a dynamic `import()` inside `loadModel()`, so voice-sample counting works even if the CDN is unreachable.
+- **Offline / home screen:** `manifest.webmanifest` + `apple-touch-icon` (prayer-bead icon). `sw.js` caches the page network-first with `cache:'no-cache'` (GitHub Pages sends `max-age=600`, which otherwise served stale pages for 10 min), 4 s timeout, ignores `?v=N`, and `cdn.jsdelivr.net` cache-first; it precaches the transformers.js entry. Whisper model files are cached by transformers.js itself (`transformers-cache`), which the SW never deletes. Bump `CACHE` in `sw.js` when its caching rules change. transformers.js is loaded with a dynamic `import()` inside `loadModel()`, so voice-sample counting works even if the CDN is unreachable.
 - **Speech engine:** Whisper tiny (`Xenova/whisper-tiny`, q8) running in the page via transformers.js (`@huggingface/transformers@3.5.1` from jsDelivr). ~40 MB download on first use, cached by the browser after that.
 - **Audio capture:** `getUserMedia` → `AudioContext` → `ScriptProcessorNode` (4096 frames). Resampled to 16 kHz before transcription.
 - **Voice-activity segmenter:** RMS energy against an adaptive noise floor (`thr = max(0.012, noise*3)`). Keeps ~3 buffers of pre-roll. A segment is sent to Whisper after `PAUSE = 0.45` s of quiet or when it reaches 6 s. Segments under 0.4 s are dropped. Segments queue and are transcribed one at a time.
