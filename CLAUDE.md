@@ -24,9 +24,11 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 
 ## Features
 
-- 8 built-in tasbeehs: SubhanAllah (33), Alhamdulillah (33), Allahu Akbar (34), La ilaha illallah, Astaghfirullah, SubhanAllahi wa bihamdihi, La hawla wa la quwwata illa billah, Salawat (100 each). The SubhanAllah regex excludes "wa bihamdihi" so the two don't double count.
+- **Phrase library + categories.** `P` holds 26 phrases (Arabic with harakat, `tr` name, English meaning `en`, optional regex `re`). `CATS` lists categories with per-category targets: Everyday, After prayer (Astaghfirullah 3, Allahumma antas-salam, 33/33/34, Ayat al-Kursi), Morning and Evening (selection from Hisn al-Muslim: Ayat al-Kursi, 3 Quls ×3, Sayyid al-Istighfar, Raditu ×3, Bismillahilladhi ×3, 'Afini ×3, Hasbiyallahu ×7, 'adada khalqihi ×3 (morning) / A'udhu bi kalimatillah ×3 (evening), Tahlil wahdahu ×10, SubhanAllahi wa bihamdihi ×100, Astaghfirullaha wa atubu ilayh ×100), Friday (Salawat ×100, Sallallahu alayhi wa sallam ×100, Salawat Ibrahimiyya ×10, Astaghfirullah ×100), My tasbeehs (custom; tab hidden when empty). `T` is the flat list of entries (a phrase can appear in several categories with separate counts). Learned spellings and voice samples are keyed by `tr`, so they are shared across categories.
+- Matching: phrases with `re` use the regex; others (and custom ones) use `fuzzy()`. Only the selected entry is ever counted, so overlapping phrases (SubhanAllah inside SubhanAllahi wa bihamdihi) don't matter. Phrases over 60 normalized letters (Ayat al-Kursi, Quls, Sayyid al-Istighfar, etc.) are tap-only; a hint says so. Long texts get a smaller font, capped at 40vh with scrolling.
+- **Auto-advance** (checkbox, on by default): on reaching a target, moves to the next unfinished entry in the same category; "All done" at the end. Choosing a category opens its first unfinished entry. Finished entries get a ✓ chip.
+- **Progress persists for the day** in `localStorage` key `progress` ({day, c: counts, n: edited targets}, keyed `cat|tr`). Counts reset on a new day; edited targets are kept. Selection is kept in `sel`. "Reset whole list" clears the current category.
 - Progress-ring counter that also works by tapping; undo; reset; editable target per tasbeeh.
-- After-prayer set toggle: 33 / 33 / 34 with auto-advance.
 - Vibration on each count and on reaching the target (`navigator.vibrate` does nothing on iOS).
 - **Custom tasbeehs:** name, Arabic phrase, target. "Use what it last heard" fills the phrase from the last transcript. Stored in `localStorage` key `customT`. Matched with `fuzzy()`: Levenshtein against sliding windows (length L, L−1, L+1), tolerance 20% of phrase length.
 - **Learn from corrections:** after each transcript a row appears; the user sets how many they actually recited and taps "Count it & learn". The normalized transcript is divided by that count and the first slice is saved as an alias for the current tasbeeh (`localStorage` key `aliases`, keyed by tasbeeh name, max 20 each). Aliases are only checked when the built-in/custom match returns 0. "Forget learned spellings" clears them.
@@ -48,5 +50,5 @@ A web app that counts tasbeeh (Islamic phrases of remembrance) by listening to t
 1. Measure how often learned aliases fix misses before building anything bigger.
 2. Reduce latency: move inference to a Web Worker so the UI never stalls; try WebGPU where available.
 3. Personal voice samples: **step 1 (recording) and step 2 (DTW template matching) are built.** If DTW isn't accurate enough on the owner's voice, step 3 is a small pretrained audio-embedding model plus a classifier trained in the browser on the stored samples. A further idea: save missed/false segments as extra positive/negative samples.
-4. Session history (counts per day) stored locally.
+4. Session history (counts per day) stored locally. Today's counts already persist (`progress`); history would keep past days too.
 5. ~~Add a web app manifest and icon~~ Done, with offline support. Existing home-screen installs must be removed and re-added to pick up the new icon.

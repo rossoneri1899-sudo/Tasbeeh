@@ -25,6 +25,11 @@ h1{font-size:20px;margin:4px 0 12px}
 .chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .stage{text-align:center;margin:18px 0 8px}
 .ar{font-family:"Geeza Pro","Noto Naskh Arabic",serif;font-size:40px;line-height:1.6;direction:rtl}
+.ar.long{font-size:24px;line-height:1.9;max-height:40vh;overflow-y:auto}
+.en{font-size:14px;margin-top:4px}
+#cats .chip{font-weight:600}
+#chips{margin-top:8px}
+#catnote{font-size:13px;margin-top:4px}
 .tr{color:var(--muted);font-size:15px}
 .ring{position:relative;width:240px;height:240px;margin:14px auto}
 .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
@@ -57,8 +62,10 @@ summary{cursor:pointer;color:var(--muted)}
 <body>
 <main>
 <h1>Hands-free Tasbeeh</h1>
+<div class="chips" id="cats" role="group" aria-label="Choose category"></div>
+<div class="tr" id="catnote" hidden></div>
 <div class="chips" id="chips" role="group" aria-label="Choose tasbeeh"></div>
-<div class="stage"><div class="ar" id="ar"></div><div class="tr" id="tr"></div></div>
+<div class="stage"><div class="ar" id="ar"></div><div class="tr" id="tr"></div><div class="tr en" id="en"></div></div>
 
 <div class="ring" id="ring">
   <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="44"/><circle class="fg" id="fg" cx="50" cy="50" r="44"/></svg>
@@ -91,9 +98,9 @@ summary{cursor:pointer;color:var(--muted)}
   <div class="tr">Higher sensitivity counts more easily. Raise it if it misses you; lower it if it counts things you didn't say.</div>
 </details>
 
-<div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button></div>
+<div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button><button class="btn" id="resetCat">Reset whole list</button></div>
 <label class="opt">Target <input type="number" id="target" min="1" max="1000" value="33"></label>
-<label class="opt"><input type="checkbox" id="seq"> After-prayer set: 33 SubhanAllah, 33 Alhamdulillah, 34 Allahu Akbar</label>
+<label class="opt"><input type="checkbox" id="seq" checked> Move to the next one in the list when the target is reached</label>
 <label class="opt"><input type="checkbox" id="vib" checked> Vibrate on each count</label>
 
 <button class="btn" id="delT" hidden>Delete this custom tasbeeh</button>
@@ -129,46 +136,106 @@ function norm(s){
     .replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي')
     .replace(/[^\u0621-\u064A]/g,'');
 }
-const T = [
-  {ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', n:33, re:/سبحانالله(?!وبحمده)/g},
-  {ar:'اَلْحَمْدُ لِلّٰه', tr:'Alhamdulillah', n:33, re:/الحمدلله/g},
-  {ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', n:34, re:/اللهاكبر/g},
-  {ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', n:100, re:/لاالهالاالله/g},
-  {ar:'أَسْتَغْفِرُ اللّٰه', tr:'Astaghfirullah', n:100, re:/استغفرالله/g},
-  {ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', n:100, re:/سبحانالله?وبحمده/g},
-  {ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', n:100, re:/لاحولولاقوهالابالله/g},
-  {ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', n:100, re:/صلي?عليمحمد|صلياللهعليهوسلم/g}
+// Phrase library. `tr` is the phrase's name and also the key for learned spellings and voice samples,
+// so the same phrase shares them across categories. Phrases without `re` are matched with fuzzy().
+const P = {
+  sub:{ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', en:'Glory be to Allah', re:/سبحانالله(?!وبحمده)/g},
+  ham:{ar:'اَلْحَمْدُ لِلّٰه', tr:'Alhamdulillah', en:'All praise is for Allah', re:/الحمدلله/g},
+  akb:{ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', en:'Allah is the Greatest', re:/اللهاكبر/g},
+  tah:{ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', en:'There is no god but Allah', re:/لاالهالاالله/g},
+  ast:{ar:'أَسْتَغْفِرُ اللّٰه', tr:'Astaghfirullah', en:'I seek Allah’s forgiveness', re:/استغفرالله/g},
+  sbh:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', en:'Glory be to Allah, and praise be to Him', re:/سبحانالله?وبحمده/g},
+  hwl:{ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', en:'There is no power and no strength except with Allah', re:/لاحولولاقوهالابالله/g},
+  sal:{ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', en:'O Allah, send blessings upon Muhammad', re:/صلي?عليمحمد|صلياللهعليهوسلم/g},
+  sbz:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ سُبْحَانَ اللّٰهِ الْعَظِيم', tr:'SubhanAllahi wa bihamdihi, SubhanAllahil Azim', en:'Glory be to Allah and praise be to Him; glory be to Allah the Magnificent'},
+  atb:{ar:'أَسْتَغْفِرُ اللّٰهَ وَأَتُوبُ إِلَيْه', tr:'Astaghfirullaha wa atubu ilayh', en:'I seek Allah’s forgiveness and turn to Him in repentance'},
+  whd:{ar:'لَا إِلٰهَ إِلَّا اللّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِير', tr:'La ilaha illallahu wahdahu', en:'There is no god but Allah alone, without partner. His is the dominion and His is the praise, and He is over all things capable'},
+  hsb:{ar:'حَسْبُنَا اللّٰهُ وَنِعْمَ الْوَكِيل', tr:'Hasbunallahu wa ni’mal wakil', en:'Allah is sufficient for us, and He is the best disposer of affairs'},
+  yun:{ar:'لَا إِلٰهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِين', tr:'Dua of Yunus', en:'There is no god but You, glory be to You; I have been among the wrongdoers'},
+  sic:{ar:'صَلَّى اللّٰهُ عَلَيْهِ وَسَلَّم', tr:'Sallallahu alayhi wa sallam', en:'May Allah send blessings and peace upon him'},
+  ibr:{ar:'اللّٰهُمَّ صَلِّ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا صَلَّيْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيدٌ، اللّٰهُمَّ بَارِكْ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا بَارَكْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيد', tr:'Salawat Ibrahimiyya', en:'O Allah, send blessings upon Muhammad and the family of Muhammad, as You sent blessings upon Ibrahim and the family of Ibrahim…'},
+  sys:{ar:'اللّٰهُمَّ أَنْتَ رَبِّي لَا إِلٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ', tr:'Sayyid al-Istighfar', en:'The best way of seeking forgiveness: O Allah, You are my Lord, there is no god but You…'},
+  rdt:{ar:'رَضِيتُ بِاللّٰهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا', tr:'Raditu billahi rabba', en:'I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet'},
+  bsm:{ar:'بِسْمِ اللّٰهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيم', tr:'Bismillahilladhi la yadurru', en:'In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing'},
+  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You'},
+  hsy:{ar:'حَسْبِيَ اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ، وَهُوَ رَبُّ الْعَرْشِ الْعَظِيم', tr:'Hasbiyallahu la ilaha illa huwa', en:'Allah is sufficient for me; there is no god but Him. In Him I trust, and He is Lord of the Mighty Throne'},
+  adk:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ، عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ', tr:'SubhanAllahi wa bihamdihi ‘adada khalqihi', en:'Glory be to Allah and praise be to Him, as many as His creation, as much as pleases Him, the weight of His Throne and the ink of His words'},
+  kal:{ar:'أَعُوذُ بِكَلِمَاتِ اللّٰهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ', tr:'A’udhu bi kalimatillahit-tammat', en:'I seek refuge in the perfect words of Allah from the evil of what He has created'},
+  sla:{ar:'اللّٰهُمَّ أَنْتَ السَّلَامُ وَمِنْكَ السَّلَامُ، تَبَارَكْتَ يَا ذَا الْجَلَالِ وَالْإِكْرَام', tr:'Allahumma antas-salam', en:'O Allah, You are Peace and from You is peace. Blessed are You, Possessor of majesty and honour'},
+  kur:{ar:'اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ، لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ، لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ، مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ، يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ، وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ، وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ، وَلَا يَئُودُهُ حِفْظُهُمَا، وَهُوَ الْعَلِيُّ الْعَظِيمُ', tr:'Ayat al-Kursi', en:'Al-Baqarah 2:255'},
+  ikh:{ar:'قُلْ هُوَ اللّٰهُ أَحَدٌ، اللّٰهُ الصَّمَدُ، لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ', tr:'Surah al-Ikhlas', en:'Chapter 112'},
+  flq:{ar:'قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ، مِنْ شَرِّ مَا خَلَقَ، وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ، وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ، وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ', tr:'Surah al-Falaq', en:'Chapter 113'},
+  nas:{ar:'قُلْ أَعُوذُ بِرَبِّ النَّاسِ، مَلِكِ النَّاسِ، إِلٰهِ النَّاسِ، مِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ، الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ، مِنَ الْجِنَّةِ وَالنَّاسِ', tr:'Surah an-Nas', en:'Chapter 114'}
+};
+// Categories, in the order they are usually recited. Counts follow Hisn al-Muslim where it gives one; others are common targets.
+const CATS = [
+  {id:'day', name:'Everyday', items:[['sub',33],['ham',33],['akb',34],['tah',100],['ast',100],['sbh',100],['hwl',100],['sal',100],['sbz',100],['atb',100],['whd',100],['hsb',100],['yun',100]]},
+  {id:'salah', name:'After prayer', note:'After each obligatory prayer.', items:[['ast',3],['sla',1],['sub',33],['ham',33],['akb',34],['kur',1]]},
+  {id:'am', name:'Morning', note:'From Fajr until sunrise. Selection from Hisn al-Muslim.', items:[['kur',1],['ikh',3],['flq',3],['nas',3],['sys',1],['rdt',3],['bsm',3],['afi',3],['hsy',7],['adk',3],['whd',10],['sbh',100],['atb',100]]},
+  {id:'pm', name:'Evening', note:'From Asr until Maghrib. Selection from Hisn al-Muslim.', items:[['kur',1],['ikh',3],['flq',3],['nas',3],['sys',1],['rdt',3],['bsm',3],['afi',3],['hsy',7],['kal',3],['whd',10],['sbh',100],['atb',100]]},
+  {id:'jumu', name:'Friday', note:'Send abundant salawat on the Prophet ﷺ on Friday, and read Surah al-Kahf.', items:[['sal',100],['sic',100],['ibr',10],['ast',100]]},
+  {id:'mine', name:'My tasbeehs', items:[]}
 ];
-try{JSON.parse(localStorage.getItem('customT')||'[]').forEach(c=>T.push({ar:c.ar,tr:c.name,n:c.n,custom:true,key:norm(c.ar)}));}catch(e){}
+const T=[];
+for(const c of CATS)for(const [k,n] of c.items)T.push({...P[k],n,cat:c.id});
+try{JSON.parse(localStorage.getItem('customT')||'[]').forEach(c=>T.push({ar:c.ar,tr:c.name,n:c.n,custom:true,cat:'mine'}));}catch(e){}
+for(const t of T)t.key=norm(t.ar);
 function saveCustom(){try{localStorage.setItem('customT',JSON.stringify(T.filter(t=>t.custom).map(t=>({ar:t.ar,name:t.tr,n:t.n}))));}catch(e){}}
 let aliases={};try{aliases=JSON.parse(localStorage.getItem('aliases')||'{}');}catch(e){}
 function saveAliases(){try{localStorage.setItem('aliases',JSON.stringify(aliases));}catch(e){}}
-const SEQ=[0,1,2];
 let lastHeard='';
-let cur=0, counts=T.map(()=>0), targets=T.map(t=>t.n);
+// Counts last for the day (so a morning routine survives closing the app); edited targets are kept.
+const today=new Date().toDateString(),ek=t=>t.cat+'|'+t.tr;
+let saved={day:today,c:{},n:{}};
+try{const s=JSON.parse(localStorage.getItem('progress')||'null');if(s){saved.n=s.n||{};if(s.day===today)saved.c=s.c||{};}}catch(e){}
+let cur=0, counts=T.map(t=>saved.c[ek(t)]||0), targets=T.map(t=>saved.n[ek(t)]||t.n);
+function saveProgress(){
+  const c={},n={};T.forEach((t,i)=>{if(counts[i])c[ek(t)]=counts[i];if(targets[i]!==t.n)n[ek(t)]=targets[i];});
+  try{localStorage.setItem('progress',JSON.stringify({day:today,c,n}));}catch(e){}
+}
 const $=id=>document.getElementById(id);
 const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
 
 function renderChips(){
+  const cat=T[cur].cat,hasMine=T.some(t=>t.cat==='mine');
+  $('cats').innerHTML='';
+  for(const c of CATS){
+    if(c.id==='mine'&&!hasMine)continue;
+    const b=document.createElement('button');b.className='chip';b.textContent=c.name;b.setAttribute('aria-pressed',c.id===cat);
+    b.onclick=()=>{const all=T.map((t,i)=>i).filter(i=>T[i].cat===c.id);const i=all.find(i=>counts[i]<targets[i])??all[0];if(i!=null)select(i);};$('cats').appendChild(b);
+  }
   $('chips').innerHTML='';
-  T.forEach((t,i)=>{const b=document.createElement('button');b.className='chip';b.textContent=t.tr;b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
+  T.forEach((t,i)=>{if(t.cat!==cat)return;const b=document.createElement('button');b.className='chip';b.textContent=t.tr+(targets[i]>1?' ×'+targets[i]:'');
+    if(counts[i]>=targets[i])b.textContent='✓ '+b.textContent;
+    b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
+  const c=CATS.find(c=>c.id===cat);$('catnote').textContent=c.note||'';$('catnote').hidden=!c.note;
+  $('chips').querySelector('[aria-pressed="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
 }
 function select(i){
   if(mode==='enroll')stop();
-  cur=i;$('delT').hidden=!T[i].custom;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();vinfo();
+  cur=i;const t=T[i];
+  $('delT').hidden=!t.custom;$('target').value=targets[i];$('ar').textContent=t.ar;$('ar').classList.toggle('long',t.key.length>40);
+  $('tr').textContent=t.tr;$('en').textContent=(t.en||'')+(t.key.length>60?' · Tap the counter for this one; it is too long to count by voice.':'');
+  try{localStorage.setItem('sel',ek(t));}catch(e){}
+  renderChips();draw();vinfo();
   if(mode==='count'){setEngine();$('status').textContent=listenMsg();if(engine==='whisper'&&!asr)loadModel().then(()=>{$('status').textContent=listenMsg();pump();}).catch(e=>$('status').textContent='Could not load model: '+e.message);}
 }
-function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));}
+function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));$('fg').style.opacity=c?1:0;}
 function add(k){
   if(!k)return;
-  counts[cur]=Math.max(0,counts[cur]+k);draw();
+  const was=counts[cur];counts[cur]=Math.max(0,counts[cur]+k);draw();saveProgress();
   const r=$('ring');r.classList.remove('pulse');void r.offsetWidth;r.classList.add('pulse');
   try{if($('vib').checked&&k>0&&navigator.vibrate)navigator.vibrate(30);}catch(e){}
-  if(counts[cur]>=targets[cur]&&k>0)done();
+  if(counts[cur]>=targets[cur]&&k>0&&was<targets[cur])done();
 }
 function done(){
   try{navigator.vibrate&&navigator.vibrate([120,60,120]);}catch(e){}
-  if($('seq').checked){const p=SEQ.indexOf(cur);if(p>=0&&p<SEQ.length-1){$('status').textContent='Done. Moving to '+T[SEQ[p+1]].tr;select(SEQ[p+1]);return;}}
+  renderChips();
+  if($('seq').checked){
+    const cat=T[cur].cat,next=T.findIndex((t,i)=>i>cur&&t.cat===cat&&counts[i]<targets[i]);
+    if(next>=0){$('status').textContent='Done. Moving to '+T[next].tr+'.';select(next);return;}
+    if(T.every(t=>t.cat!==cat||counts[T.indexOf(t)]>=targets[T.indexOf(t)])){$('status').textContent='All done for '+CATS.find(c=>c.id===cat).name+'. May Allah accept it.';return;}
+  }
   $('status').textContent='Target reached.';
 }
 function lev(a,b){
@@ -186,7 +253,7 @@ function fuzzy(text,key){
   }
   return c;
 }
-function baseMatches(text){const t=T[cur];if(t.custom)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;}
+function baseMatches(text){const t=T[cur];if(!t.re)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;}
 // If the built-in pattern finds nothing, try spellings this user has taught it
 function matches(text){
   const b=baseMatches(text);if(b)return b;
@@ -295,7 +362,7 @@ function calibrate(name){
   let thr=pct(pos,0.9)*1.15;
   const key=norm(T.find(t=>t.tr===name)?.ar||'');
   const neg=[];
-  for(const t of T){if(t.tr===name)continue;const k=norm(t.ar);if(key&&(k.includes(key)||key.includes(k)))continue;neg.push(...(samples[t.tr]||[]));}
+  for(const nm of new Set(T.map(t=>t.tr))){if(nm===name)continue;const k=norm(T.find(t=>t.tr===nm).ar);if(key&&(k.includes(key)||key.includes(k)))continue;neg.push(...(samples[nm]||[]));}
   let minNeg=Infinity;
   for(const s of neg.slice(-40))for(const o of own)minNeg=Math.min(minNeg,bestScore(o.f.map(q=>q.c),s.f));
   if(minNeg<thr)thr=Math.max(pct(pos,0.5)*1.05,minNeg*0.95);
@@ -474,8 +541,9 @@ $('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localSto
 try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
 $('tap').onclick=()=>add(1);
 $('undo').onclick=()=>add(-1);
-$('reset').onclick=()=>{counts[cur]=0;draw();$('status').textContent='Reset.';};
-$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();};
+$('reset').onclick=()=>{counts[cur]=0;draw();saveProgress();renderChips();$('status').textContent='Reset.';};
+$('resetCat').onclick=()=>{const cat=T[cur].cat;T.forEach((t,i)=>{if(t.cat===cat)counts[i]=0;});draw();saveProgress();renderChips();$('status').textContent='Reset all of '+CATS.find(c=>c.id===cat).name+'.';};
+$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();saveProgress();renderChips();};
 $('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
 let learnN=1;
 $('lm').onclick=()=>{learnN=Math.max(1,learnN-1);$('ln').textContent=learnN;};
@@ -499,15 +567,17 @@ $('useHeard').onclick=()=>{
 $('addT').onclick=()=>{
   const ar=$('cp').value.trim(),name=$('cn').value.trim(),n=Math.max(1,parseInt($('cc').value)||33);
   if(norm(ar).length<3){$('status').textContent='Enter the Arabic phrase first (at least a few letters).';return;}
-  T.push({ar,tr:name||ar,n,custom:true,key:norm(ar)});counts.push(0);targets.push(n);saveCustom();
+  T.push({ar,tr:name||ar,n,custom:true,cat:'mine',key:norm(ar)});counts.push(0);targets.push(n);saveCustom();
   $('cn').value='';$('cp').value='';select(T.length-1);$('status').textContent='Saved. It will be here next time too.';
 };
 $('delT').onclick=()=>{
   if(!T[cur].custom)return;
   if(samples[T[cur].tr])dropSamples(T[cur].tr,samples[T[cur].tr].slice());
-  T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();select(0);$('status').textContent='Deleted.';
+  T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();saveProgress();
+  const m=T.findIndex(t=>t.cat==='mine');select(m>=0?m:0);$('status').textContent='Deleted.';
 };
-select(0);
+let sel=null;try{sel=localStorage.getItem('sel');}catch(e){}
+select(Math.max(0,T.findIndex(t=>ek(t)===sel)));
 loadSamples();
 </script>
 </body>
