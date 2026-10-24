@@ -20,16 +20,41 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:480px;margin:0 auto;padding:16px 16px 40px}
 h1{font-size:20px;margin:4px 0 12px}
-.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
-.chip{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px}
-.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .stage{text-align:center;margin:18px 0 8px}
 .ar{font-family:"Geeza Pro","Noto Naskh Arabic",serif;font-size:40px;line-height:1.6;direction:rtl}
 .ar.long{font-size:24px;line-height:1.9;max-height:40vh;overflow-y:auto}
 .en{font-size:14px;margin-top:4px}
-#cats .chip{font-weight:600}
-#chips{margin-top:8px}
-#catnote{font-size:13px;margin-top:4px}
+/* Left panel: slides in on phones, stays open on wide screens */
+.top{display:flex;align-items:center;gap:12px;margin:4px 0 8px}
+.top h1{margin:0}
+.crumb{font-size:14px;color:var(--muted)}
+.menu{flex:none;width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:flex;align-items:center;justify-content:center}
+.menu svg{width:22px;height:22px}
+.side{position:fixed;top:0;bottom:0;left:0;z-index:20;width:min(320px,86vw);background:var(--surface);border-right:1px solid var(--line);overflow-y:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 8px) 0 calc(env(safe-area-inset-bottom,0px) + 16px);transform:translateX(-102%);transition:transform .25s,visibility 0s .25s;visibility:hidden}
+.side.open{transform:none;visibility:visible;transition:transform .25s}
+.scrim{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.35)}
+.sidehead{display:flex;align-items:center;justify-content:space-between;padding:4px 8px 8px 16px;font-weight:700;font-size:18px}
+.sidehead button{width:44px;height:44px;border:0;background:none;color:var(--muted);font-size:20px}
+.cat{border-top:1px solid var(--line)}
+.cathead{width:100%;display:flex;align-items:center;gap:8px;padding:14px 16px;border:0;background:none;color:var(--ink);font:600 16px system-ui;text-align:left}
+.cathead .n{margin-left:auto;font-weight:400;font-size:13px;color:var(--muted)}
+.cathead .arrow{transition:transform .2s;color:var(--muted)}
+.cathead[aria-expanded="true"] .arrow{transform:rotate(90deg)}
+.catnote{font-size:13px;color:var(--muted);padding:0 16px 8px}
+.items{list-style:none;margin:0;padding:0 8px 10px}
+.item{width:100%;display:flex;align-items:center;gap:10px;padding:11px 10px;border:0;border-radius:10px;background:none;color:var(--ink);font:15px/1.3 system-ui;text-align:left}
+.item[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
+.item .p{margin-left:auto;flex:none;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.item[aria-current="true"] .p{color:inherit;opacity:.85}
+.item.done .p{color:var(--accent);font-weight:700}
+.item.done[aria-current="true"] .p{color:inherit}
+@media (min-width:900px){
+  .side{transform:none;visibility:visible;transition:none}
+  body{padding-left:320px}
+  .menu,.sidehead button,.scrim{display:none}
+}
+@media (prefers-reduced-motion:reduce){.side,.cathead .arrow{transition:none}}
 .tr{color:var(--muted);font-size:15px}
 .ring{position:relative;width:240px;height:240px;margin:14px auto}
 .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
@@ -63,12 +88,17 @@ summary{cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
+<nav id="side" class="side" aria-label="Tasbeeh list">
+  <div class="sidehead">Tasbeehs<button id="closeSide" aria-label="Close list">✕</button></div>
+  <div id="list"></div>
+</nav>
+<div id="scrim" class="scrim" hidden></div>
 <main>
 <button id="update" class="update" hidden onclick="location.reload()">A new version is available. Tap to update.</button>
-<h1>Hands-free Tasbeeh</h1>
-<div class="chips" id="cats" role="group" aria-label="Choose category"></div>
-<div class="tr" id="catnote" hidden></div>
-<div class="chips" id="chips" role="group" aria-label="Choose tasbeeh"></div>
+<header class="top">
+  <button id="menuBtn" class="menu" aria-label="Open tasbeeh list" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <div><h1>Hands-free Tasbeeh</h1><div class="crumb" id="crumb"></div></div>
+</header>
 <div class="stage"><div class="ar" id="ar"></div><div class="tr" id="tr"></div><div class="tr en" id="en"></div></div>
 
 <div class="ring" id="ring">
@@ -131,7 +161,7 @@ summary{cursor:pointer;color:var(--muted)}
 <script>
 // Bump on every deploy. The page compares it with the live copy whenever it opens or comes back to the foreground,
 // because iOS resumes home-screen apps from memory instead of reloading them.
-const APP_VERSION='5';
+const APP_VERSION='6';
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{}));
 async function checkUpdate(){
   try{
@@ -214,41 +244,75 @@ function saveProgress(){
 const $=id=>document.getElementById(id);
 const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
 
-function renderChips(){
-  const cat=T[cur].cat,hasMine=T.some(t=>t.cat==='mine');
-  $('cats').innerHTML='';
+const openCats=new Set();
+function renderList(){
+  const cat=T[cur].cat;
+  $('list').innerHTML='';
   for(const c of CATS){
-    if(c.id==='mine'&&!hasMine)continue;
-    const b=document.createElement('button');b.className='chip';b.textContent=c.name;b.setAttribute('aria-pressed',c.id===cat);
-    b.onclick=()=>{const all=T.map((t,i)=>i).filter(i=>T[i].cat===c.id);const i=all.find(i=>counts[i]<targets[i])??all[0];if(i!=null)select(i);};$('cats').appendChild(b);
+    const idx=T.map((t,i)=>i).filter(i=>T[i].cat===c.id);
+    if(!idx.length)continue;
+    const doneN=idx.filter(i=>counts[i]>=targets[i]).length,open=openCats.has(c.id);
+    const sec=document.createElement('section');sec.className='cat';
+    const h=document.createElement('button');h.className='cathead';h.setAttribute('aria-expanded',open);
+    h.innerHTML='<span class="arrow" aria-hidden="true">›</span><span></span><span class="n"></span>';
+    h.children[1].textContent=c.name;h.children[2].textContent=doneN?doneN+' of '+idx.length+' done':idx.length+'';
+    h.onclick=()=>{open?openCats.delete(c.id):openCats.add(c.id);renderList();};
+    sec.appendChild(h);
+    if(open){
+      if(c.note){const n=document.createElement('div');n.className='catnote';n.textContent=c.note;sec.appendChild(n);}
+      const ul=document.createElement('ul');ul.className='items';
+      for(const i of idx){
+        const li=document.createElement('li'),b=document.createElement('button'),fin=counts[i]>=targets[i];
+        b.className='item'+(fin?' done':'');if(i===cur)b.setAttribute('aria-current','true');
+        b.innerHTML='<span></span><span class="p"></span>';b.children[0].textContent=T[i].tr;
+        b.children[1].textContent=fin?'✓':counts[i]?counts[i]+'/'+targets[i]:'×'+targets[i];
+        b.onclick=()=>{select(i);closeSide();};
+        li.appendChild(b);ul.appendChild(li);
+      }
+      sec.appendChild(ul);
+    }
+    $('list').appendChild(sec);
   }
-  $('chips').innerHTML='';
-  T.forEach((t,i)=>{if(t.cat!==cat)return;const b=document.createElement('button');b.className='chip';b.textContent=t.tr+(targets[i]>1?' ×'+targets[i]:'');
-    if(counts[i]>=targets[i])b.textContent='✓ '+b.textContent;
-    b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
-  const c=CATS.find(c=>c.id===cat);$('catnote').textContent=c.note||'';$('catnote').hidden=!c.note;
-  $('chips').querySelector('[aria-pressed="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+  const c=CATS.find(c=>c.id===cat),idx=T.map((t,i)=>i).filter(i=>T[i].cat===cat);
+  $('crumb').textContent=c.name+' · '+(idx.indexOf(cur)+1)+' of '+idx.length;
 }
+const wide=matchMedia('(min-width:900px)');
+function openSide(){
+  openCats.add(T[cur].cat);renderList();
+  $('side').classList.add('open');$('scrim').hidden=false;$('menuBtn').setAttribute('aria-expanded','true');
+  $('list').querySelector('[aria-current]')?.focus({preventScroll:true});
+  $('list').querySelector('[aria-current]')?.scrollIntoView({block:'center'});
+}
+function closeSide(){
+  if(wide.matches||!$('side').classList.contains('open'))return;
+  $('side').classList.remove('open');$('scrim').hidden=true;$('menuBtn').setAttribute('aria-expanded','false');$('menuBtn').focus({preventScroll:true});
+}
+$('menuBtn').onclick=openSide;$('closeSide').onclick=closeSide;$('scrim').onclick=closeSide;
+addEventListener('keydown',e=>{if(e.key==='Escape')closeSide();});
+// swipe the panel to the left to close it
+let sx=null;$('side').addEventListener('touchstart',e=>{sx=e.touches[0].clientX;},{passive:true});
+$('side').addEventListener('touchend',e=>{if(sx!=null&&e.changedTouches[0].clientX-sx<-60)closeSide();sx=null;},{passive:true});
 function select(i){
   if(mode==='enroll')stop();
-  cur=i;const t=T[i];
+  cur=i;const t=T[i];openCats.add(t.cat);
   $('delT').hidden=!t.custom;$('target').value=targets[i];$('ar').textContent=t.ar;$('ar').classList.toggle('long',t.key.length>40);
   $('tr').textContent=t.tr;$('en').textContent=(t.en||'')+(t.key.length>60?' · Tap the counter for this one; it is too long to count by voice.':'');
   try{localStorage.setItem('sel',ek(t));}catch(e){}
-  renderChips();draw();vinfo();
+  renderList();draw();vinfo();
   if(mode==='count'){setEngine();$('status').textContent=listenMsg();if(engine==='whisper'&&!asr)loadModel().then(()=>{$('status').textContent=listenMsg();pump();}).catch(e=>$('status').textContent='Could not load model: '+e.message);}
 }
 function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));$('fg').style.opacity=c?1:0;}
 function add(k){
   if(!k)return;
   const was=counts[cur];counts[cur]=Math.max(0,counts[cur]+k);draw();saveProgress();
+  if(wide.matches||$('side').classList.contains('open'))renderList();
   const r=$('ring');r.classList.remove('pulse');void r.offsetWidth;r.classList.add('pulse');
   try{if($('vib').checked&&k>0&&navigator.vibrate)navigator.vibrate(30);}catch(e){}
   if(counts[cur]>=targets[cur]&&k>0&&was<targets[cur])done();
 }
 function done(){
   try{navigator.vibrate&&navigator.vibrate([120,60,120]);}catch(e){}
-  renderChips();
+  renderList();
   if($('seq').checked){
     const cat=T[cur].cat,next=T.findIndex((t,i)=>i>cur&&t.cat===cat&&counts[i]<targets[i]);
     if(next>=0){$('status').textContent='Done. Moving to '+T[next].tr+'.';select(next);return;}
@@ -559,9 +623,9 @@ $('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localSto
 try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
 $('tap').onclick=()=>add(1);
 $('undo').onclick=()=>add(-1);
-$('reset').onclick=()=>{counts[cur]=0;draw();saveProgress();renderChips();$('status').textContent='Reset.';};
-$('resetCat').onclick=()=>{const cat=T[cur].cat;T.forEach((t,i)=>{if(t.cat===cat)counts[i]=0;});draw();saveProgress();renderChips();$('status').textContent='Reset all of '+CATS.find(c=>c.id===cat).name+'.';};
-$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();saveProgress();renderChips();};
+$('reset').onclick=()=>{counts[cur]=0;draw();saveProgress();renderList();$('status').textContent='Reset.';};
+$('resetCat').onclick=()=>{const cat=T[cur].cat;T.forEach((t,i)=>{if(t.cat===cat)counts[i]=0;});draw();saveProgress();renderList();$('status').textContent='Reset all of '+CATS.find(c=>c.id===cat).name+'.';};
+$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();saveProgress();renderList();};
 $('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
 let learnN=1;
 $('lm').onclick=()=>{learnN=Math.max(1,learnN-1);$('ln').textContent=learnN;};
