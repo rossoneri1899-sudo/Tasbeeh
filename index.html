@@ -228,13 +228,14 @@ summary{cursor:pointer;color:var(--muted)}
   <summary>Test without speaking</summary>
   <div class="test"><input type="text" id="tin" placeholder="سبحان الله سبحان الله" dir="auto"><button class="btn" id="tgo">Send</button></div>
 </details>
+<div class="ver">Recitations: adhkar by Hamad Al-Duraihim (Hisn al-Muslim, hisnmuslim.com); Quran by Mishary Alafasy (everyayah.com).</div>
 <div class="ver">Version <span id="ver"></span></div>
 </main>
 
 <script>
 // Bump on every deploy. The page compares it with the live copy whenever it opens or comes back to the foreground,
 // because iOS resumes home-screen apps from memory instead of reloading them.
-const APP_VERSION='10';
+const APP_VERSION='11';
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{}));
 async function checkUpdate(){
   try{
@@ -260,28 +261,28 @@ function norm(s){
 // Phrase library. `tr` is the phrase's name and also the key for learned spellings and voice samples,
 // so the same phrase shares them across categories. Phrases without `re` are matched with fuzzy().
 const P = {
-  sub:{ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', en:'Glory be to Allah', re:/سبحانالله(?!وبحمده)/g},
+  sub:{ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', en:'Glory be to Allah', au:'audio/sub.mp3', re:/سبحانالله(?!وبحمده)/g},
   ham:{ar:'اَلْحَمْدُ لِلّٰه', tr:'Alhamdulillah', en:'All praise is for Allah', re:/الحمدلله/g},
-  akb:{ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', en:'Allah is the Greatest', re:/اللهاكبر/g},
-  tah:{ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', en:'There is no god but Allah', re:/لاالهالاالله/g},
+  akb:{ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', en:'Allah is the Greatest', au:'audio/akb.mp3', re:/اللهاكبر/g},
+  tah:{ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', en:'There is no god but Allah', au:'audio/tah.mp3', re:/لاالهالاالله/g},
   ast:{ar:'أَسْتَغْفِرُ اللّٰه', tr:'Astaghfirullah', en:'I seek Allah’s forgiveness', re:/استغفرالله/g},
-  sbh:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', en:'Glory be to Allah, and praise be to Him', re:/سبحانالله?وبحمده/g},
+  sbh:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', en:'Glory be to Allah, and praise be to Him', au:'audio/sbh.mp3', re:/سبحانالله?وبحمده/g},
   hwl:{ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', en:'There is no power and no strength except with Allah', re:/لاحولولاقوهالابالله/g},
   sal:{ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', en:'O Allah, send blessings upon Muhammad', re:/صلي?عليمحمد|صلياللهعليهوسلم/g},
   sbz:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ سُبْحَانَ اللّٰهِ الْعَظِيم', tr:'SubhanAllahi wa bihamdihi, SubhanAllahil Azim', en:'Glory be to Allah and praise be to Him; glory be to Allah the Magnificent'},
-  atb:{ar:'أَسْتَغْفِرُ اللّٰهَ وَأَتُوبُ إِلَيْه', tr:'Astaghfirullaha wa atubu ilayh', en:'I seek Allah’s forgiveness and turn to Him in repentance'},
-  whd:{ar:'لَا إِلٰهَ إِلَّا اللّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِير', tr:'La ilaha illallahu wahdahu', en:'There is no god but Allah alone, without partner. His is the dominion and His is the praise, and He is over all things capable'},
-  hsb:{ar:'حَسْبُنَا اللّٰهُ وَنِعْمَ الْوَكِيل', tr:'Hasbunallahu wa ni’mal wakil', en:'Allah is sufficient for us, and He is the best disposer of affairs'},
-  yun:{ar:'لَا إِلٰهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِين', tr:'Dua of Yunus', en:'There is no god but You, glory be to You; I have been among the wrongdoers'},
+  atb:{ar:'أَسْتَغْفِرُ اللّٰهَ وَأَتُوبُ إِلَيْه', tr:'Astaghfirullaha wa atubu ilayh', en:'I seek Allah’s forgiveness and turn to Him in repentance', au:'audio/atb.mp3'},
+  whd:{ar:'لَا إِلٰهَ إِلَّا اللّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِير', tr:'La ilaha illallahu wahdahu', en:'There is no god but Allah alone, without partner. His is the dominion and His is the praise, and He is over all things capable', au:'audio/whd.mp3'},
+  hsb:{ar:'حَسْبُنَا اللّٰهُ وَنِعْمَ الْوَكِيل', tr:'Hasbunallahu wa ni’mal wakil', en:'Allah is sufficient for us, and He is the best disposer of affairs', au:'audio/hsb.mp3'},
+  yun:{ar:'لَا إِلٰهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِين', tr:'Dua of Yunus', en:'There is no god but You, glory be to You; I have been among the wrongdoers', au:'audio/yun.mp3'},
   sic:{ar:'صَلَّى اللّٰهُ عَلَيْهِ وَسَلَّم', tr:'Sallallahu alayhi wa sallam', en:'May Allah send blessings and peace upon him'},
-  ibr:{ar:'اللّٰهُمَّ صَلِّ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا صَلَّيْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيدٌ، اللّٰهُمَّ بَارِكْ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا بَارَكْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيد', tr:'Salawat Ibrahimiyya', en:'O Allah, send blessings upon Muhammad and the family of Muhammad, as You sent blessings upon Ibrahim and the family of Ibrahim…'},
-  sys:{ar:'اللّٰهُمَّ أَنْتَ رَبِّي لَا إِلٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ', tr:'Sayyid al-Istighfar', en:'The best way of seeking forgiveness: O Allah, You are my Lord, there is no god but You…'},
-  rdt:{ar:'رَضِيتُ بِاللّٰهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا', tr:'Raditu billahi rabba', en:'I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet'},
-  bsm:{ar:'بِسْمِ اللّٰهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيم', tr:'Bismillahilladhi la yadurru', en:'In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing'},
-  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ. اللّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You. O Allah, I seek refuge in You from disbelief and poverty, and from the punishment of the grave; there is no god but You'},
-  hsy:{ar:'حَسْبِيَ اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ، وَهُوَ رَبُّ الْعَرْشِ الْعَظِيم', tr:'Hasbiyallahu la ilaha illa huwa', en:'Allah is sufficient for me; there is no god but Him. In Him I trust, and He is Lord of the Mighty Throne'},
-  adk:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ، عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ', tr:'SubhanAllahi wa bihamdihi ‘adada khalqihi', en:'Glory be to Allah and praise be to Him, as many as His creation, as much as pleases Him, the weight of His Throne and the ink of His words'},
-  kal:{ar:'أَعُوذُ بِكَلِمَاتِ اللّٰهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ', tr:'A’udhu bi kalimatillahit-tammat', en:'I seek refuge in the perfect words of Allah from the evil of what He has created'},
+  ibr:{ar:'اللّٰهُمَّ صَلِّ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا صَلَّيْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيدٌ، اللّٰهُمَّ بَارِكْ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا بَارَكْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيد', tr:'Salawat Ibrahimiyya', en:'O Allah, send blessings upon Muhammad and the family of Muhammad, as You sent blessings upon Ibrahim and the family of Ibrahim…', au:'audio/ibr.mp3'},
+  sys:{ar:'اللّٰهُمَّ أَنْتَ رَبِّي لَا إِلٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ', tr:'Sayyid al-Istighfar', en:'The best way of seeking forgiveness: O Allah, You are my Lord, there is no god but You…', au:'audio/sys.mp3'},
+  rdt:{ar:'رَضِيتُ بِاللّٰهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا', tr:'Raditu billahi rabba', en:'I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet', au:'audio/rdt.mp3'},
+  bsm:{ar:'بِسْمِ اللّٰهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيم', tr:'Bismillahilladhi la yadurru', en:'In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing', au:'audio/bsm.mp3'},
+  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ. اللّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You. O Allah, I seek refuge in You from disbelief and poverty, and from the punishment of the grave; there is no god but You', au:'audio/afi.mp3'},
+  hsy:{ar:'حَسْبِيَ اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ، وَهُوَ رَبُّ الْعَرْشِ الْعَظِيم', tr:'Hasbiyallahu la ilaha illa huwa', en:'Allah is sufficient for me; there is no god but Him. In Him I trust, and He is Lord of the Mighty Throne', au:'audio/hsy.mp3'},
+  adk:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ، عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ', tr:'SubhanAllahi wa bihamdihi ‘adada khalqihi', en:'Glory be to Allah and praise be to Him, as many as His creation, as much as pleases Him, the weight of His Throne and the ink of His words', au:'audio/adk.mp3'},
+  kal:{ar:'أَعُوذُ بِكَلِمَاتِ اللّٰهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ', tr:'A’udhu bi kalimatillahit-tammat', en:'I seek refuge in the perfect words of Allah from the evil of what He has created', au:'audio/kal.mp3'},
   sla:{ar:'اللّٰهُمَّ أَنْتَ السَّلَامُ وَمِنْكَ السَّلَامُ، تَبَارَكْتَ يَا ذَا الْجَلَالِ وَالْإِكْرَام', tr:'Allahumma antas-salam', en:'O Allah, You are Peace and from You is peace. Blessed are You, Possessor of majesty and honour'},
   kur:{ar:'اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ، لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ، لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ، مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ، يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ، وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ، وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ، وَلَا يَئُودُهُ حِفْظُهُمَا، وَهُوَ الْعَلِيُّ الْعَظِيمُ', tr:'Ayat al-Kursi', en:'Al-Baqarah 2:255', q:[[2,255]]},
   ikh:{ar:'قُلْ هُوَ اللّٰهُ أَحَدٌ، اللّٰهُ الصَّمَدُ، لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ', tr:'Surah al-Ikhlas', en:'Chapter 112', q:[[112,1],[112,2],[112,3],[112,4]]},
