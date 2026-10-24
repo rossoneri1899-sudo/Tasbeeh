@@ -49,6 +49,43 @@ h1{font-size:20px;margin:4px 0 12px}
 .item[aria-current="true"] .p{color:inherit;opacity:.85}
 .item.done .p{color:var(--accent);font-weight:700}
 .item.done[aria-current="true"] .p{color:inherit}
+.sheet{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+.sheetin{max-width:480px;margin:0 auto;padding:16px 16px 40px}
+.sheet h2{font-size:16px;margin:22px 0 8px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center}
+.tile.hero{grid-column:1/-1;padding:18px 12px}
+.tile .big{font:700 56px/1 system-ui;font-variant-numeric:tabular-nums}
+.tile .mid{font:700 24px/1.1 system-ui;font-variant-numeric:tabular-nums}
+.tile .lbl{font-size:13px;color:var(--muted);margin-top:4px}
+.tile .sub{font-size:14px;margin-top:8px}
+.routrow{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:6px;font-size:15px}
+.routrow .rv{color:var(--muted);font-variant-numeric:tabular-nums}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-top:22px}
+.calhead h2{margin:0}
+.calhead .menu{font-size:22px}
+.calhead .menu:disabled{opacity:.35}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
+.cal .wd{text-align:center;font-size:12px;color:var(--muted);padding-bottom:2px}
+.cal .day{aspect-ratio:1;border:0;border-radius:8px;font:13px system-ui;color:var(--ink);font-variant-numeric:tabular-nums}
+.cal .day:disabled{background:none;color:var(--line)}
+.cal .today{font-weight:800}
+.cal .sel{outline:2px solid var(--ink);outline-offset:1px}
+/* one hue, light to dark: more dhikr = stronger green */
+.l0{background:none;box-shadow:inset 0 0 0 1px var(--line)}
+.l1{background:color-mix(in srgb,var(--accent) 25%,var(--surface))}
+.l2{background:color-mix(in srgb,var(--accent) 50%,var(--surface))}
+.l3{background:color-mix(in srgb,var(--accent) 75%,var(--surface))}
+.l4{background:var(--accent)}
+.cal .l3,.cal .l4{color:var(--accent-ink)}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12px;color:var(--muted);margin-top:10px}
+.legend i{width:14px;height:14px;border-radius:4px;display:inline-block}
+.legend span{flex-basis:100%}
+.daydetail h3{font-size:15px;margin:22px 0 6px}
+.donecats{font-size:14px;margin:0 0 8px}
+.daylist{list-style:none;margin:0;padding:0}
+.daylist li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
+.daylist li span:last-child{font-variant-numeric:tabular-nums;color:var(--muted)}
 @media (min-width:900px){
   .side{transform:none;visibility:visible;transition:none}
   body{padding-left:320px}
@@ -91,13 +128,35 @@ summary{cursor:pointer;color:var(--muted)}
 <nav id="side" class="side" aria-label="Tasbeeh list">
   <div class="sidehead">Tasbeehs<button id="closeSide" aria-label="Close list">✕</button></div>
   <div id="list"></div>
+  <div class="cat"><button class="cathead" id="sideHist"><span class="arrow" aria-hidden="true">›</span><span>History &amp; streaks</span></button></div>
 </nav>
 <div id="scrim" class="scrim" hidden></div>
+<section id="hist" class="sheet" role="dialog" aria-modal="true" aria-labelledby="histTitle" hidden>
+  <div class="sheetin">
+    <header class="top">
+      <button id="histClose" class="menu" aria-label="Back to counter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h1 id="histTitle">History</h1>
+    </header>
+    <div class="tiles">
+      <div class="tile hero"><div class="big" id="sCur">0</div><div class="lbl" id="sCurL">day streak</div><div class="sub" id="sCurNote"></div></div>
+      <div class="tile"><div class="mid" id="sBest">0</div><div class="lbl">best streak</div></div>
+      <div class="tile"><div class="mid" id="sWeek">0</div><div class="lbl">this week</div></div>
+      <div class="tile"><div class="mid" id="sAll">0</div><div class="lbl">all time</div></div>
+    </div>
+    <h2>Routines finished, days in a row</h2>
+    <div id="rout"></div>
+    <div class="calhead"><button id="mPrev" class="menu" aria-label="Previous month">‹</button><h2 id="mName"></h2><button id="mNext" class="menu" aria-label="Next month">›</button></div>
+    <div class="cal" id="cal"></div>
+    <div class="legend" aria-hidden="true">Less <i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More<span>1–33 · 34–99 · 100–299 · 300+</span></div>
+    <div id="dayDetail" class="daydetail"></div>
+  </div>
+</section>
 <main>
 <button id="update" class="update" hidden onclick="location.reload()">A new version is available. Tap to update.</button>
 <header class="top">
   <button id="menuBtn" class="menu" aria-label="Open tasbeeh list" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
   <div><h1>Hands-free Tasbeeh</h1><div class="crumb" id="crumb"></div></div>
+  <button id="histBtn" class="menu" aria-label="History and streaks" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></button>
 </header>
 <div class="stage"><div class="ar" id="ar"></div><div class="tr" id="tr"></div><div class="tr en" id="en"></div></div>
 
@@ -161,7 +220,7 @@ summary{cursor:pointer;color:var(--muted)}
 <script>
 // Bump on every deploy. The page compares it with the live copy whenever it opens or comes back to the foreground,
 // because iOS resumes home-screen apps from memory instead of reloading them.
-const APP_VERSION='6';
+const APP_VERSION='7';
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{}));
 async function checkUpdate(){
   try{
@@ -233,14 +292,34 @@ let aliases={};try{aliases=JSON.parse(localStorage.getItem('aliases')||'{}');}ca
 function saveAliases(){try{localStorage.setItem('aliases',JSON.stringify(aliases));}catch(e){}}
 let lastHeard='';
 // Counts last for the day (so a morning routine survives closing the app); edited targets are kept.
-const today=new Date().toDateString(),ek=t=>t.cat+'|'+t.tr;
+// Local calendar date, e.g. 2026-10-24
+const dk=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+let today=dk(new Date());
+const ek=t=>t.cat+'|'+t.tr;
+let history={};try{history=JSON.parse(localStorage.getItem('history')||'{}')||{};}catch(e){}
 let saved={day:today,c:{},n:{}};
-try{const s=JSON.parse(localStorage.getItem('progress')||'null');if(s){saved.n=s.n||{};if(s.day===today)saved.c=s.c||{};}}catch(e){}
+try{const s=JSON.parse(localStorage.getItem('progress')||'null');if(s){
+  saved.n=s.n||{};
+  let day=s.day;if(day&&!/^\d{4}-/.test(day))day=dk(new Date(day)); // older versions stored toDateString()
+  if(day===today)saved.c=s.c||{};
+  else if(/^\d{4}-\d\d-\d\d$/.test(day)&&s.c&&!history[day])history[day]={t:Object.values(s.c).reduce((a,b)=>a+b,0),c:s.c,d:[]};
+}}catch(e){}
 let cur=0, counts=T.map(t=>saved.c[ek(t)]||0), targets=T.map(t=>saved.n[ek(t)]||t.n);
 function saveProgress(){
   const c={},n={};T.forEach((t,i)=>{if(counts[i])c[ek(t)]=counts[i];if(targets[i]!==t.n)n[ek(t)]=targets[i];});
   try{localStorage.setItem('progress',JSON.stringify({day:today,c,n}));}catch(e){}
+  const tot=Object.values(c).reduce((a,b)=>a+b,0);
+  const d=CATS.filter(k=>T.some(t=>t.cat===k.id)&&T.every((t,i)=>t.cat!==k.id||counts[i]>=targets[i])).map(k=>k.id);
+  if(tot)history[today]={t:tot,c,d};else delete history[today];
+  const keys=Object.keys(history).sort();for(const k of keys.slice(0,Math.max(0,keys.length-400)))delete history[k];
+  try{localStorage.setItem('history',JSON.stringify(history));}catch(e){}
 }
+// Past midnight: start a fresh day (yesterday is already in history)
+function checkDay(){
+  const d=dk(new Date());if(d===today)return;
+  today=d;counts=counts.map(()=>0);draw();renderList();saveProgress();
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkDay();});
 const $=id=>document.getElementById(id);
 const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
 
@@ -304,6 +383,7 @@ function select(i){
 function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));$('fg').style.opacity=c?1:0;}
 function add(k){
   if(!k)return;
+  checkDay();
   const was=counts[cur];counts[cur]=Math.max(0,counts[cur]+k);draw();saveProgress();
   if(wide.matches||$('side').classList.contains('open'))renderList();
   const r=$('ring');r.classList.remove('pulse');void r.offsetWidth;r.classList.add('pulse');
@@ -658,6 +738,79 @@ $('delT').onclick=()=>{
   T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();saveProgress();
   const m=T.findIndex(t=>t.cat==='mine');select(m>=0?m:0);$('status').textContent='Deleted.';
 };
+// ---- History & streaks ----
+// localStorage `history`: {"YYYY-MM-DD": {t: total count, c: {cat|tr: count}, d: [categories fully completed]}}
+const ROUTINES=['am','pm','salah'];
+function histOpen(){
+  checkDay();renderHist();
+  $('hist').hidden=false;document.body.style.overflow='hidden';$('histClose').focus({preventScroll:true});
+}
+function histClose(){$('hist').hidden=true;document.body.style.overflow='';$('histBtn').focus({preventScroll:true});}
+$('histBtn').onclick=histOpen;$('histClose').onclick=histClose;
+$('sideHist').onclick=()=>{closeSide();histOpen();};
+addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('hist').hidden)histClose();});
+const addDays=(k,n)=>{const [y,m,d]=k.split('-').map(Number);return dk(new Date(y,m-1,d+n));};
+// Runs of consecutive days satisfying ok(day). The current run may start yesterday, so an unfinished today doesn't break it.
+function streaks(ok){
+  let best=0,run=0,prev=null;
+  for(const k of Object.keys(history).sort()){
+    if(!ok(history[k])){continue;}
+    run=prev&&addDays(prev,1)===k?run+1:1;prev=k;best=Math.max(best,run);
+  }
+  let cur=0,k=ok(history[today]||{})?today:addDays(today,-1);
+  while(history[k]&&ok(history[k])){cur++;k=addDays(k,-1);}
+  return {cur,best,todayDone:ok(history[today]||{})};
+}
+let histMonth=null,histSel=null;
+const fmt=n=>n.toLocaleString();
+const level=t=>!t?0:t<34?1:t<100?2:t<300?3:4;
+function renderHist(){
+  const all=streaks(h=>h.t>0);
+  $('sCur').textContent=all.cur;$('sCurL').textContent=all.cur===1?'day streak':'day streak';
+  $('sCurNote').textContent=all.todayDone?'Today counted. Keep it up.':all.cur?'Do some dhikr today to keep it going.':'Start today.';
+  $('sBest').textContent=all.best;
+  let wk=0;for(let i=0;i<7;i++)wk+=(history[addDays(today,-i)]||{}).t||0;
+  $('sWeek').textContent=fmt(wk);
+  $('sAll').textContent=fmt(Object.values(history).reduce((a,h)=>a+(h.t||0),0));
+  $('rout').innerHTML='';
+  for(const id of ROUTINES){
+    const s=streaks(h=>(h.d||[]).includes(id)),c=CATS.find(c=>c.id===id);
+    const row=document.createElement('div');row.className='routrow';
+    row.innerHTML='<span class="rn"></span><span class="rv"></span>';
+    row.children[0].textContent=(s.todayDone?'✓ ':'')+c.name;
+    row.children[1].textContent=s.cur+(s.cur===1?' day':' days')+(s.best>s.cur?' · best '+s.best:'');
+    $('rout').appendChild(row);
+  }
+  if(!histMonth)histMonth=today.slice(0,7);
+  if(!histSel)histSel=today;
+  const [y,m]=histMonth.split('-').map(Number),first=new Date(y,m-1,1),days=new Date(y,m,0).getDate();
+  $('mName').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  $('mNext').disabled=histMonth>=today.slice(0,7);
+  const cal=$('cal');cal.innerHTML='';
+  for(let i=0;i<7;i++){const d=document.createElement('div');d.className='wd';d.setAttribute('aria-hidden','true');d.textContent=new Date(2023,0,1+i).toLocaleDateString(undefined,{weekday:'narrow'});cal.appendChild(d);}
+  for(let i=0;i<first.getDay();i++)cal.appendChild(document.createElement('div'));
+  for(let d=1;d<=days;d++){
+    const k=dk(new Date(y,m-1,d)),h=history[k],t=h?h.t:0,b=document.createElement('button');
+    b.className='day l'+level(t)+(k===today?' today':'')+(k===histSel?' sel':'');b.textContent=d;
+    b.disabled=k>today;
+    b.setAttribute('aria-label',new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})+': '+(t?fmt(t)+' dhikr':'none'));
+    b.title=t?fmt(t)+' dhikr':'';
+    b.onclick=()=>{histSel=k;renderHist();};
+    cal.appendChild(b);
+  }
+  // breakdown of the selected day
+  const h=history[histSel],dd=$('dayDetail');dd.innerHTML='';
+  const [sy,sm,sd]=histSel.split('-').map(Number);
+  const head=document.createElement('h3');head.textContent=new Date(sy,sm-1,sd).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})+(h?' · '+fmt(h.t)+' total':'');dd.appendChild(head);
+  if(!h){const p=document.createElement('p');p.className='tr';p.textContent=histSel===today?'Nothing yet today.':'No dhikr recorded this day.';dd.appendChild(p);return;}
+  if(h.d&&h.d.length){const p=document.createElement('p');p.className='donecats';p.textContent='Completed: '+h.d.map(id=>(CATS.find(c=>c.id===id)||{name:id}).name).join(', ');dd.appendChild(p);}
+  const by={};for(const [key,n] of Object.entries(h.c||{})){const tr=key.slice(key.indexOf('|')+1);by[tr]=(by[tr]||0)+n;}
+  const ul=document.createElement('ul');ul.className='daylist';
+  for(const [tr,n] of Object.entries(by).sort((a,b)=>b[1]-a[1])){const li=document.createElement('li');li.innerHTML='<span></span><span></span>';li.children[0].textContent=tr;li.children[1].textContent=fmt(n);ul.appendChild(li);}
+  dd.appendChild(ul);
+}
+$('mPrev').onclick=()=>{histMonth=addDays(histMonth+'-01',-1).slice(0,7);renderHist();};
+$('mNext').onclick=()=>{const [y,m]=histMonth.split('-').map(Number);histMonth=dk(new Date(y,m,1)).slice(0,7);renderHist();};
 let sel=null;try{sel=localStorage.getItem('sel');}catch(e){}
 select(Math.max(0,T.findIndex(t=>ek(t)===sel)));
 loadSamples();
