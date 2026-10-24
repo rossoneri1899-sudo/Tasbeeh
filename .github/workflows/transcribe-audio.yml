@@ -3,7 +3,7 @@ name: transcribe-audio
 on:
   push:
     branches: [claude/eager-dijkstra-efambd]
-    paths: [.github/workflows/transcribe-audio.yml]
+    paths: [.github/workflows/transcribe-audio.yml, 'audio/**']
   workflow_dispatch:
 jobs:
   transcribe:
@@ -12,22 +12,13 @@ jobs:
     steps:
       - run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
       - run: pip install -q openai-whisper
-      - name: Download recordings
-        run: |
-          mkdir a && cd a
-          for f in 240 241 245 91 128 124 96 216 83 86 87 93 94 79 82 53; do
-            curl -sSfL -o $f.mp3 https://raw.githubusercontent.com/rn0x/Adhkar-json/main/audio/$f.mp3
-          done
-          ls -la
-      - name: Transcribe with word timings
+      - uses: actions/checkout@v4
+      - name: Transcribe trimmed recordings
         run: |
           python - <<'PY'
-          import whisper
+          import whisper, glob
           m = whisper.load_model("medium")
-          for f in "240 241 245 91 128 124 96 216 83 86 87 93 94 79 82 53".split():
-              r = m.transcribe(f"a/{f}.mp3", language="ar", word_timestamps=True, temperature=0)
-              print(f"=== {f}.mp3")
-              print("TEXT:", r["text"].strip())
-              for s in r["segments"]:
-                  print("  " + " ".join(f"{w['word'].strip()}[{w['start']:.2f}-{w['end']:.2f}]" for w in s["words"]))
+          for f in sorted(glob.glob("audio/*.mp3")):
+              r = m.transcribe(f, language="ar", word_timestamps=True, temperature=0)
+              print(f"=== {f}  TEXT: {r['text'].strip()}")
           PY
