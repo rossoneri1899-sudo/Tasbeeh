@@ -70,6 +70,20 @@ summary{cursor:pointer;color:var(--muted)}
 <label class="opt"><input type="checkbox" id="seq"> After-prayer set: 33 SubhanAllah, 33 Alhamdulillah, 34 Allahu Akbar</label>
 <label class="opt"><input type="checkbox" id="vib" checked> Vibrate on each count</label>
 
+<button class="btn" id="delT" hidden>Delete this custom tasbeeh</button>
+
+<details>
+  <summary>Add your own tasbeeh</summary>
+  <label class="opt">Name <input type="text" id="cn" placeholder="e.g. My dua" style="flex:1;min-width:0"></label>
+  <label class="opt">Phrase <input type="text" id="cp" dir="rtl" placeholder="Arabic text" style="flex:1;min-width:0"></label>
+  <label class="opt">Target <input type="number" id="cc" min="1" max="1000" value="33"></label>
+  <div class="row">
+    <button class="btn" id="useHeard">Use what it last heard</button>
+    <button class="btn main" id="addT">Save tasbeeh</button>
+  </div>
+  <div class="tr">Tip: typing Arabic is slow, so recite the phrase once with Start listening on, then tap "Use what it last heard" and edit if needed.</div>
+</details>
+
 <details>
   <summary>Test without speaking</summary>
   <div class="test"><input type="text" id="tin" placeholder="سبحان الله سبحان الله" dir="auto"><button class="btn" id="tgo">Send</button></div>
@@ -95,7 +109,10 @@ const T = [
   {ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', n:100, re:/لاحولولاقوهالابالله/g},
   {ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', n:100, re:/صلي?عليمحمد|صلياللهعليهوسلم/g}
 ];
+try{JSON.parse(localStorage.getItem('customT')||'[]').forEach(c=>T.push({ar:c.ar,tr:c.name,n:c.n,custom:true,key:norm(c.ar)}));}catch(e){}
+function saveCustom(){try{localStorage.setItem('customT',JSON.stringify(T.filter(t=>t.custom).map(t=>({ar:t.ar,name:t.tr,n:t.n}))));}catch(e){}}
 const SEQ=[0,1,2];
+let lastHeard='';
 let cur=0, counts=T.map(()=>0), targets=T.map(t=>t.n);
 const $=id=>document.getElementById(id);
 const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
@@ -104,7 +121,7 @@ function renderChips(){
   $('chips').innerHTML='';
   T.forEach((t,i)=>{const b=document.createElement('button');b.className='chip';b.textContent=t.tr;b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
 }
-function select(i){cur=i;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();}
+function select(i){cur=i;$('delT').hidden=!T[i].custom;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();}
 function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));}
 function add(k){
   if(!k)return;
@@ -118,7 +135,22 @@ function done(){
   if($('seq').checked){const p=SEQ.indexOf(cur);if(p>=0&&p<SEQ.length-1){$('status').textContent='Done. Moving to '+T[SEQ[p+1]].tr;select(SEQ[p+1]);return;}}
   $('status').textContent='Target reached.';
 }
-const matches=text=>{const m=norm(text).match(T[cur].re);return m?m.length:0;};
+function lev(a,b){
+  const m=a.length,n=b.length;let p=Array.from({length:n+1},(_,j)=>j);
+  for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c;}
+  return p[n];
+}
+// Counts non-overlapping spots in the transcript that closely match the phrase (allows ~20% spelling slack)
+function fuzzy(text,key){
+  const s=norm(text),L=key.length,tol=Math.floor(L*0.2);let c=0,i=0;
+  while(i<s.length){
+    let hit=0;
+    for(const l of [L,L-1,L+1]){if(l<2||i+l>s.length)continue;if(lev(s.substr(i,l),key)<=tol){hit=l;break;}}
+    if(hit){c++;i+=hit;}else i++;
+  }
+  return c;
+}
+const matches=text=>{const t=T[cur];if(t.custom)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;};
 
 // ---- On-device speech: Whisper (tiny) running in the page ----
 let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null;
@@ -137,6 +169,7 @@ function resample(buf,from,to){
   return out;
 }
 // Simple voice-activity segmenter: collects one utterance, then transcribes it once.
+const PAUSE=0.45; // seconds of quiet before a phrase is sent to the model (was 0.7). Raise if phrases get cut in half.
 let seg=[],segLen=0,speaking=false,silentFor=0,noise=0.005,pre=[];
 const queue=[];let busy=false;
 function onAudio(e){
@@ -154,7 +187,7 @@ function onAudio(e){
     if(speaking){seg.push(d);segLen+=dur;silentFor+=dur;}
     else{pre.push(d);if(pre.length>3)pre.shift();}
   }
-  if(speaking&&(silentFor>=0.7||segLen>8)){
+  if(speaking&&(silentFor>=PAUSE||segLen>6)){
     const all=new Float32Array(seg.reduce((a,b)=>a+b.length,0));let o=0;for(const b of seg){all.set(b,o);o+=b.length;}
     speaking=false;seg=[];segLen=0;silentFor=0;pre=[];
     if(all.length/sr>0.4){queue.push(resample(all,sr,16000));pump();}
@@ -167,7 +200,7 @@ async function pump(){
     try{
       const out=await asr(a,{language:'arabic',task:'transcribe'});
       const text=(out.text||'').trim();
-      $('heard').textContent=text;
+      $('heard').textContent=text;lastHeard=text;
       const m=matches(text);
       if(m){add(m);} 
     }catch(e){$('status').textContent='Recognition error: '+e.message;}
@@ -207,6 +240,20 @@ $('undo').onclick=()=>add(-1);
 $('reset').onclick=()=>{counts[cur]=0;draw();$('status').textContent='Reset.';};
 $('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();};
 $('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
+$('useHeard').onclick=()=>{
+  if(lastHeard){$('cp').value=lastHeard;$('status').textContent='Phrase filled in. Edit it if it looks wrong, then save.';}
+  else $('status').textContent='Start listening and recite the phrase first.';
+};
+$('addT').onclick=()=>{
+  const ar=$('cp').value.trim(),name=$('cn').value.trim(),n=Math.max(1,parseInt($('cc').value)||33);
+  if(norm(ar).length<3){$('status').textContent='Enter the Arabic phrase first (at least a few letters).';return;}
+  T.push({ar,tr:name||ar,n,custom:true,key:norm(ar)});counts.push(0);targets.push(n);saveCustom();
+  $('cn').value='';$('cp').value='';select(T.length-1);$('status').textContent='Saved. It will be here next time too.';
+};
+$('delT').onclick=()=>{
+  if(!T[cur].custom)return;
+  T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();select(0);$('status').textContent='Deleted.';
+};
 select(0);
 </script>
 </body>
