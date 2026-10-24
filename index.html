@@ -75,6 +75,17 @@ summary{cursor:pointer;color:var(--muted)}
 </div>
 <div class="row"><button class="btn" id="clearAl">Forget learned spellings for this tasbeeh</button></div>
 
+<details id="trainBox">
+  <summary>Train it on my voice</summary>
+  <div class="tr" id="vinfo" style="margin-top:8px"></div>
+  <div class="row"><button class="btn main" id="rec">Record samples</button></div>
+  <div class="tr">Say <b id="vname"></b> once, pause, and say it again. Each one becomes a sample. Aim for 10–20: some normal, some fast, some whispered. Tap Stop when done.</div>
+  <div class="row"><button class="btn" id="vplay">Play last</button><button class="btn" id="vdel">Delete last</button><button class="btn" id="vclr">Delete all</button></div>
+  <label class="opt"><input type="checkbox" id="vuse" checked> Count using my voice samples (fast, no model download) once this tasbeeh has 3 or more</label>
+  <label class="opt">Sensitivity <input type="range" id="vsens" min="0.7" max="1.5" step="0.05" value="1" style="flex:1;min-width:0"> <span id="vsv" style="min-width:44px">1.00×</span></label>
+  <div class="tr">Higher sensitivity counts more easily. Raise it if it misses you; lower it if it counts things you didn't say.</div>
+</details>
+
 <div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button></div>
 <label class="opt">Target <input type="number" id="target" min="1" max="1000" value="33"></label>
 <label class="opt"><input type="checkbox" id="seq"> After-prayer set: 33 SubhanAllah, 33 Alhamdulillah, 34 Allahu Akbar</label>
@@ -133,7 +144,11 @@ function renderChips(){
   $('chips').innerHTML='';
   T.forEach((t,i)=>{const b=document.createElement('button');b.className='chip';b.textContent=t.tr;b.setAttribute('aria-pressed',i===cur);b.onclick=()=>select(i);$('chips').appendChild(b);});
 }
-function select(i){cur=i;$('delT').hidden=!T[i].custom;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();}
+function select(i){
+  if(mode==='enroll')stop();
+  cur=i;$('delT').hidden=!T[i].custom;$('target').value=targets[i];$('ar').textContent=T[i].ar;$('tr').textContent=T[i].tr;renderChips();draw();vinfo();
+  if(mode==='count'){setEngine();$('status').textContent=listenMsg();if(engine==='whisper'&&!asr)loadModel().then(()=>{$('status').textContent=listenMsg();pump();}).catch(e=>$('status').textContent='Could not load model: '+e.message);}
+}
 function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));}
 function add(k){
   if(!k)return;
@@ -170,8 +185,170 @@ function matches(text){
   return best;
 }
 
+// ---- Voice samples: the user's own recordings, matched against the mic with DTW ----
+// Features are 12 MFCCs (c0 dropped, so loudness and whispering volume don't matter) every 10 ms at 16 kHz.
+const SR=16000,FL=400,HOP=160,NFFT=512,NMEL=26,NCEP=12,MINS=3;
+const HAMM=Float32Array.from({length:FL},(_,i)=>0.54-0.46*Math.cos(2*Math.PI*i/(FL-1)));
+const MELS=(()=>{
+  const m=f=>2595*Math.log10(1+f/700),im=x=>700*(10**(x/2595)-1),lo=m(60),hi=m(7600),p=[];
+  for(let i=0;i<NMEL+2;i++)p.push(Math.floor((NFFT+1)*im(lo+(hi-lo)*i/(NMEL+1))/SR));
+  const fb=[];
+  for(let k=1;k<=NMEL;k++){const w=new Float32Array(NFFT/2+1);
+    for(let b=p[k-1];b<p[k];b++)w[b]=(b-p[k-1])/(p[k]-p[k-1]);
+    for(let b=p[k];b<=p[k+1];b++)w[b]=(p[k+1]-b)/((p[k+1]-p[k])||1);
+    fb.push(w);}
+  return fb;
+})();
+const DCT=Array.from({length:NCEP},(_,j)=>Float32Array.from({length:NMEL},(_,k)=>Math.cos(Math.PI*(j+1)*(k+0.5)/NMEL)));
+function fft(re,im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
+  for(let len=2;len<=n;len<<=1){const a=-2*Math.PI/len,wr=Math.cos(a),wi=Math.sin(a),h=len>>1;
+    for(let i=0;i<n;i+=len){let cr=1,ci=0;
+      for(let j=0;j<h;j++){const k=i+j+h,tr=re[k]*cr-im[k]*ci,ti=re[k]*ci+im[k]*cr;
+        re[k]=re[i+j]-tr;im[k]=im[i+j]-ti;re[i+j]+=tr;im[i+j]+=ti;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t;}}}
+}
+const fre=new Float64Array(NFFT),fim=new Float64Array(NFFT),mel=new Float64Array(NMEL);
+function frame(x,o){
+  let s=0;fre.fill(0);fim.fill(0);
+  for(let i=0;i<FL;i++){const v=x[o+i];s+=v*v;fre[i]=(v-0.97*(o+i>0?x[o+i-1]:0))*HAMM[i];}
+  fft(fre,fim);
+  for(let k=0;k<NMEL;k++){const w=MELS[k];let e=0;for(let b=0;b<=NFFT/2;b++)if(w[b])e+=w[b]*(fre[b]*fre[b]+fim[b]*fim[b]);mel[k]=Math.log(e+1e-8);}
+  const c=new Float32Array(NCEP);
+  for(let j=0;j<NCEP;j++){let v=0;for(let k=0;k<NMEL;k++)v+=DCT[j][k]*mel[k];c[j]=v;}
+  return {c,r:Math.sqrt(s/FL)};
+}
+function feats(x){const out=[];for(let o=0;o+FL<=x.length;o+=HOP)out.push(frame(x,o));return out;}
+// Cut the quiet lead-in and tail off a recorded sample
+function trim(x){
+  const r=[];for(let o=0;o+FL<=x.length;o+=HOP){let s=0;for(let i=0;i<FL;i++)s+=x[o+i]*x[o+i];r.push(Math.sqrt(s/FL));}
+  const th=Math.max(Math.max(...r,0)*0.06,0.003);
+  let a=r.findIndex(v=>v>th),b=r.length-1;while(b>0&&r[b]<=th)b--;
+  if(a<0)return new Float32Array(0);
+  a=Math.max(0,a-3);b=Math.min(r.length-1,b+3);
+  return x.slice(a*HOP,b*HOP+FL);
+}
+function dist(a,b){let s=0;for(let i=0;i<NCEP;i++){const d=a[i]-b[i];s+=d*d;}return Math.sqrt(s);}
+function newPath(f){const M=f.length;return {f,D:new Float64Array(M+1).fill(Infinity),L:new Int32Array(M+1),S:new Int32Array(M+1)};}
+// One frame of open-start subsequence DTW (SPRING): finds the best match of the template ending at frame t.
+// Returns [average frame distance, start frame] or [Infinity] if the match is too squashed or stretched.
+function step(p,c,t){
+  const {f,D,L,S}=p,M=f.length;
+  let pD=0,pL=0,pS=t;
+  D[0]=0;L[0]=0;S[0]=t;
+  for(let i=1;i<=M;i++){
+    const oD=D[i],oL=L[i],oS=S[i];
+    let bD=pD,bL=pL,bS=pS;
+    if(oD<bD){bD=oD;bL=oL;bS=oS;}
+    if(D[i-1]<bD){bD=D[i-1];bL=L[i-1];bS=S[i-1];}
+    D[i]=bD+dist(c,f[i-1]);L[i]=bL+1;S[i]=bS;
+    pD=oD;pL=oL;pS=oS;
+  }
+  const dur=t-S[M]+1;
+  if(D[M]===Infinity||dur<0.5*M||dur>2*M)return [Infinity];
+  return [D[M]/L[M],S[M]];
+}
+function bestScore(tpl,seq){const p=newPath(tpl);let b=Infinity;for(let t=0;t<seq.length;t++){const s=step(p,seq[t].c,t)[0];if(s<b)b=s;}return b;}
+
+// Samples live in IndexedDB as 16 kHz Int16 audio, keyed by tasbeeh name, so they can be reused by a better model later.
+const samples={}; // name -> [{id,x:Float32Array,f:[frames]}]
+let cal={};       // name -> {thr,lo,hi,n}, recomputed when samples change
+let dbp=null;
+function idb(rw,fn){
+  dbp=dbp||new Promise((res,rej)=>{const r=indexedDB.open('tasbeeh',1);r.onupgradeneeded=()=>r.result.createObjectStore('samples',{keyPath:'id',autoIncrement:true});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+  return dbp.then(d=>new Promise((res,rej)=>{const tx=d.transaction('samples',rw);const q=fn(tx.objectStore('samples'));tx.oncomplete=()=>res(q.result);tx.onerror=()=>rej(tx.error);}));
+}
+function addLocal(name,id,x){(samples[name]=samples[name]||[]).push({id,x,f:feats(x)});cal={};}
+async function loadSamples(){
+  try{
+    for(const r of await idb('readonly',s=>s.getAll())){const x=Float32Array.from(r.a,v=>v/32768);addLocal(r.t,r.id,x);}
+  }catch(e){$('status').textContent='Could not load voice samples: '+e.message;}
+  vinfo();
+}
+async function saveSample(name,x){
+  let id=null;
+  try{id=await idb('readwrite',s=>s.add({t:name,a:Int16Array.from(x,v=>Math.max(-32768,Math.min(32767,Math.round(v*32768)))),at:Date.now()}));}
+  catch(e){$('status').textContent='Sample kept for now but not saved: '+e.message;}
+  addLocal(name,id,x);
+  try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(e){}
+}
+async function dropSamples(name,list){
+  for(const s of list){try{if(s.id!=null)await idb('readwrite',st=>st.delete(s.id));}catch(e){}}
+  samples[name]=(samples[name]||[]).filter(s=>!list.includes(s));cal={};
+}
+const pct=(a,q)=>a[Math.min(a.length-1,Math.floor(q*(a.length-1)+0.5))];
+// Threshold from the samples themselves: how well each one matches the others (leave-one-out),
+// tightened if samples of other tasbeehs come too close.
+function calibrate(name){
+  if(cal[name])return cal[name];
+  const own=samples[name]||[];if(own.length<MINS)return null;
+  const pos=own.map((s,j)=>Math.min(...own.filter((_,k)=>k!==j).map(o=>bestScore(o.f.map(q=>q.c),s.f)))).sort((a,b)=>a-b);
+  let thr=pct(pos,0.9)*1.15;
+  const key=norm(T.find(t=>t.tr===name)?.ar||'');
+  const neg=[];
+  for(const t of T){if(t.tr===name)continue;const k=norm(t.ar);if(key&&(k.includes(key)||key.includes(k)))continue;neg.push(...(samples[t.tr]||[]));}
+  let minNeg=Infinity;
+  for(const s of neg.slice(-40))for(const o of own)minNeg=Math.min(minNeg,bestScore(o.f.map(q=>q.c),s.f));
+  if(minNeg<thr)thr=Math.max(pct(pos,0.5)*1.05,minNeg*0.95);
+  return cal[name]={thr,lo:pos[0],hi:pos[pos.length-1],n:own.length,minNeg};
+}
+function sens(){return parseFloat($('vsens').value)||1;}
+function vinfo(){
+  const name=T[cur].tr,n=(samples[name]||[]).length;
+  $('vname').textContent=name;
+  if(!n){$('vinfo').textContent='No voice samples for '+name+' yet.';return;}
+  if(n<MINS){$('vinfo').textContent=name+': '+n+' sample'+(n>1?'s':'')+'. Record at least '+MINS+' to count by voice.';return;}
+  const c=calibrate(name);
+  $('vinfo').textContent=name+': '+n+' samples. Your samples match each other at '+c.lo.toFixed(1)+'–'+c.hi.toFixed(1)+'; it counts anything under '+(c.thr*sens()).toFixed(1)+'.'+(c.minNeg<Infinity?' Closest other tasbeeh: '+c.minNeg.toFixed(1)+'.':'');
+}
+
+// Live detector: runs every template frame by frame, counts at the best (lowest) score once it stops improving.
+let det=null,vbuf=new Float32Array(0),vthr=0.012;
+function makeDet(name){
+  const c=calibrate(name);
+  return {tp:samples[name].map(s=>newPath(s.f.map(q=>q.c))),thr:c.thr*sens(),t:0,cand:null,last:-1,voiced:new Uint8Array(1024),act:false,sil:0,min:Infinity,fired:false};
+}
+function voicedFrac(a,b){const d=det;a=Math.max(a,b-1023);let v=0;for(let t=a;t<=b;t++)v+=d.voiced[t&1023];return v/(b-a+1);}
+function detFrame(fr){
+  const d=det,t=d.t++,on=fr.r>vthr;
+  d.voiced[t&1023]=on?1:0;
+  let best=Infinity,bs=0;
+  for(const p of d.tp){const [s,st]=step(p,fr.c,t);if(s<best){best=s;bs=st;}}
+  if(on){d.act=true;d.sil=0;}else d.sil++;
+  if(d.act&&best<d.min)d.min=best;
+  if(best<d.thr&&bs>d.last&&voicedFrac(bs,t)>=0.5&&(!d.cand||best<d.cand.s))d.cand={s:best,t};
+  if(d.cand&&t-d.cand.t>=12){
+    const c=d.cand;d.cand=null;d.last=c.t;d.fired=true;
+    for(const p of d.tp)for(let i=1;i<p.D.length;i++)if(p.S[i]<=c.t)p.D[i]=Infinity;
+    add(1);$('status').textContent='Counted by voice (match '+c.s.toFixed(1)+', limit '+d.thr.toFixed(1)+').';
+  }
+  if(d.act&&d.sil>=50){
+    if(!d.fired&&d.min<d.thr*1.5)$('status').textContent='Heard something close but not counted (match '+d.min.toFixed(1)+', limit '+d.thr.toFixed(1)+'). If that was it, raise sensitivity or record more samples.';
+    d.act=false;d.fired=false;d.min=Infinity;
+  }
+}
+function feedVoice(x){
+  const b=new Float32Array(vbuf.length+x.length);b.set(vbuf);b.set(x,vbuf.length);
+  let o=0;for(;o+FL<=b.length;o+=HOP)detFrame(frame(b,o));
+  vbuf=b.slice(o);
+}
+let enrollName='',enrollN=0;
+async function onEnrollSegment(x){
+  x=trim(x);const dur=x.length/SR;
+  if(dur<0.25){$('status').textContent='Too short, try again.';return;}
+  if(dur>4){$('status').textContent='That was too long. Say the phrase once, then pause.';return;}
+  await saveSample(enrollName,x);enrollN++;
+  $('status').textContent='Got sample '+(samples[enrollName]||[]).length+' ('+dur.toFixed(1)+' s). Say it again, or tap Stop.';
+}
+
 // ---- On-device speech: Whisper (tiny) running in the page ----
-let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null;
+let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null, mode='off', engine='whisper';
+function engineFor(i){return $('vuse').checked&&(samples[T[i].tr]||[]).length>=MINS?'voice':'whisper';}
+function setEngine(){engine=engineFor(cur);vbuf=new Float32Array(0);det=engine==='voice'?makeDet(T[cur].tr):null;}
+function listenMsg(){
+  return engine==='voice'?'Listening with your voice samples. Recite '+T[cur].tr+'. Keep the screen on.'
+    :'Listening. Recite '+T[cur].tr+', pausing briefly between rounds. Keep the screen on.';
+}
 async function loadModel(){
   if(asr)return;
   $('status').textContent='Loading speech model…';
@@ -196,23 +373,26 @@ function onAudio(e){
   let s=0;for(let i=0;i<d.length;i++)s+=d[i]*d[i];
   const rms=Math.sqrt(s/d.length);
   $('lvl').style.width=Math.min(100,rms*600)+'%';
-  const thr=Math.max(0.012,noise*3);
+  // whispers are quiet, so voice modes use a lower floor than Whisper does
+  const thr=Math.max(mode==='count'&&engine==='whisper'?0.012:0.006,noise*3);
+  if(rms<=thr)noise=noise*0.95+rms*0.05;
+  if(mode==='count'&&engine==='voice'){vthr=thr;feedVoice(resample(d,sr,SR));return;}
   if(rms>thr){
     if(!speaking){speaking=true;seg=pre.slice();segLen=seg.reduce((a,b)=>a+b.length,0)/sr;}
     seg.push(d);segLen+=dur;silentFor=0;
   }else{
-    noise=noise*0.95+rms*0.05;
     if(speaking){seg.push(d);segLen+=dur;silentFor+=dur;}
     else{pre.push(d);if(pre.length>3)pre.shift();}
   }
   if(speaking&&(silentFor>=PAUSE||segLen>6)){
     const all=new Float32Array(seg.reduce((a,b)=>a+b.length,0));let o=0;for(const b of seg){all.set(b,o);o+=b.length;}
     speaking=false;seg=[];segLen=0;silentFor=0;pre=[];
-    if(all.length/sr>0.4){queue.push(resample(all,sr,16000));pump();}
+    if(mode==='enroll'){if(all.length/sr>0.25)onEnrollSegment(resample(all,sr,SR));}
+    else if(all.length/sr>0.4){queue.push(resample(all,sr,SR));pump();}
   }
 }
 async function pump(){
-  if(busy)return;busy=true;
+  if(busy||!asr)return;busy=true;
   while(queue.length){
     const a=queue.shift();
     try{
@@ -225,34 +405,62 @@ async function pump(){
   }
   busy=false;
 }
+async function openMic(){
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true}});
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  await ctx.resume();
+  const src=ctx.createMediaStreamSource(stream);
+  proc=ctx.createScriptProcessor(4096,1,1);
+  proc.onaudioprocess=onAudio;
+  src.connect(proc);proc.connect(ctx.destination);
+  try{wake=await navigator.wakeLock.request('screen');}catch(e){}
+  listening=true;
+}
+function micError(e){
+  $('status').textContent=(e.name==='NotAllowedError'?'Microphone permission denied. On iPhone: Settings → Safari → Microphone, or reload and tap Allow.':'Could not start: '+e.message);
+}
 async function start(){
+  $('listen').disabled=true;$('rec').disabled=true;
   try{
-    $('listen').disabled=true;
-    await loadModel();
-    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true}});
-    ctx=new (window.AudioContext||window.webkitAudioContext)();
-    await ctx.resume();
-    const src=ctx.createMediaStreamSource(stream);
-    proc=ctx.createScriptProcessor(4096,1,1);
-    proc.onaudioprocess=onAudio;
-    src.connect(proc);proc.connect(ctx.destination);
-    try{wake=await navigator.wakeLock.request('screen');}catch(e){}
-    listening=true;
+    setEngine();
+    if(engine==='whisper')await loadModel();
+    await openMic();mode='count';
     $('listen').textContent='Stop listening';$('listen').classList.add('live');
-    $('status').textContent='Listening. Recite '+T[cur].tr+', pausing briefly between rounds. Keep the screen on.';
-  }catch(e){
-    $('status').textContent=(e.name==='NotAllowedError'?'Microphone permission denied. On iPhone: Settings → Safari → Microphone, or reload and tap Allow.':'Could not start: '+e.message);
-  }
+    $('status').textContent=listenMsg();
+  }catch(e){micError(e);$('rec').disabled=false;}
   $('listen').disabled=false;
 }
+async function startEnroll(){
+  $('listen').disabled=true;$('rec').disabled=true;
+  try{
+    enrollName=T[cur].tr;enrollN=0;
+    await openMic();mode='enroll';
+    $('rec').textContent='Stop recording';$('rec').classList.add('live');
+    $('status').textContent='Recording samples for '+enrollName+'. Say it once, then pause.';
+  }catch(e){micError(e);$('listen').disabled=false;}
+  $('rec').disabled=false;
+}
 function stop(msg){
-  listening=false;
+  const was=mode;listening=false;mode='off';
   try{proc&&proc.disconnect();ctx&&ctx.close();stream&&stream.getTracks().forEach(t=>t.stop());wake&&wake.release();}catch(e){}
-  speaking=false;seg=[];pre=[];$('lvl').style.width='0';
-  $('listen').textContent='Start listening';$('listen').classList.remove('live');
-  $('status').textContent=typeof msg==='string'?msg:'Stopped.';
+  speaking=false;seg=[];pre=[];det=null;vbuf=new Float32Array(0);$('lvl').style.width='0';
+  $('listen').textContent='Start listening';$('listen').classList.remove('live');$('listen').disabled=false;
+  $('rec').textContent='Record samples';$('rec').classList.remove('live');$('rec').disabled=false;
+  $('status').textContent=typeof msg==='string'?msg:was==='enroll'?'Saved '+enrollN+' new sample'+(enrollN===1?'':'s')+'.':'Stopped.';
+  if(was==='enroll')vinfo();
 }
 $('listen').onclick=()=>listening?stop():start();
+$('rec').onclick=()=>listening?stop():startEnroll();
+$('vplay').onclick=()=>{
+  const s=(samples[T[cur].tr]||[]).at(-1);if(!s||listening)return;
+  const c=new (window.AudioContext||window.webkitAudioContext)(),b=c.createBuffer(1,s.x.length,SR);
+  b.getChannelData(0).set(s.x);const src=c.createBufferSource();src.buffer=b;src.connect(c.destination);src.onended=()=>c.close();src.start();
+};
+$('vdel').onclick=async()=>{const name=T[cur].tr,s=(samples[name]||[]).at(-1);if(!s)return;await dropSamples(name,[s]);vinfo();$('status').textContent='Deleted the last sample.';};
+$('vclr').onclick=async()=>{const name=T[cur].tr;if(!(samples[name]||[]).length||!confirm('Delete all voice samples for '+name+'?'))return;await dropSamples(name,samples[name].slice());vinfo();$('status').textContent='Deleted all voice samples for '+name+'.';};
+$('vuse').onchange=()=>{try{localStorage.setItem('vuse',$('vuse').checked?'1':'0');}catch(e){}};
+$('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localStorage.setItem('vsens',$('vsens').value);}catch(e){}if(det)det.thr=calibrate(T[cur].tr).thr*sens();vinfo();};
+try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
 $('tap').onclick=()=>add(1);
 $('undo').onclick=()=>add(-1);
 $('reset').onclick=()=>{counts[cur]=0;draw();$('status').textContent='Reset.';};
@@ -285,9 +493,11 @@ $('addT').onclick=()=>{
 };
 $('delT').onclick=()=>{
   if(!T[cur].custom)return;
+  if(samples[T[cur].tr])dropSamples(T[cur].tr,samples[T[cur].tr].slice());
   T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();select(0);$('status').textContent='Deleted.';
 };
 select(0);
+loadSamples();
 </script>
 </body>
 </html>
