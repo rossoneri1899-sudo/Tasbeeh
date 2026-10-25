@@ -55,6 +55,22 @@ const tests = [
   ['Match: other speech (random vowels, like a TV)', () => matches(cat([sil(500), tv, sil(400), tv, sil(1000)])), 0],
   ['Match: noise bursts', () => matches(cat([sil(500), noise(400, 0.3), sil(600), noise(300, 0.3), sil(1000)])), 0],
 ];
+// voice profile: built from the user's recordings of two different adhkar; another speaker has a higher pitch
+// and a shorter vocal tract (formants about 15% higher)
+const other = (sp = 1) => cat([vowel(150 * sp, 215, 370, 920, 1, 0.06), noise(50 * sp, 0.05), vowel(160 * sp, 230, 800, 1380, 1, 0.06), vowel(220 * sp, 205, 750, 1270, 1, 0.06), vowel(260 * sp, 200, 690, 1150, 0.9, 0.06)]);
+const userRecs = [A(), A(1.1), A(0.95), B(), B(1.05), B(0.9), A(1.02), B()].map(x => V.voiceStats(V.frames(cat([sil(80), x, sil(80)]))));
+const prof = V.profile(userRecs);
+const likeUser = x => V.soundsLikeUser(prof, V.frames(cat([sil(80), x, sil(80)])));
+const third = () => cat([vowel(200, 125, 400, 1500, 1, 0.06), vowel(220, 130, 550, 1300, 1, 0.06), vowel(180, 120, 450, 1600, 1, 0.06)]);
+// learning by itself: of 6 recitations picked up while counting, one was really a cough-like noise
+const picked = [A(), A(1.08), noise(500, 0.2), A(0.94), A(1.03), A()].map(x => V.template(cat([sil(80), x, sil(80)])));
+tests.push(
+  ['Profile: your voice saying a learned dhikr', () => [A(), A(1.05), B(1.02)].filter(likeUser).length, 3],
+  ['Profile: your voice saying a different dhikr', () => [third(), third()].filter(likeUser).length, 2],
+  ['Profile: another speaker (higher voice)', () => [other(), other(1.1), other(0.9)].filter(x => likeUser(x) === true).length, 0],
+  ['Profile: hiss and clatter can’t be judged (left to the other checks)', () => [noise(500, 0.2)].filter(x => likeUser(x) === true).length, 0],
+  ['Learning: keeps the consistent recitations, drops the noise', () => { const k = V.consistent(picked); return k.length === 5 && !k.includes(2) ? 1 : 0; }, 1],
+);
 const rows = tests.map(([name, fn, want]) => { const got = fn(); return `<tr><td class="${got === want ? 'p' : 'f'}">${got === want ? 'pass' : 'FAIL'}</td><td>${name}</td><td>got ${got}, want ${want}</td></tr>`; });
 const pass = rows.filter(r => r.includes('"p"')).length;
 document.getElementById('out').innerHTML = `<tr><td colspan=3><b>${pass}/${tests.length} pass</b> · threshold ${cal.thr.toFixed(2)} (samples ${cal.lo.toFixed(2)}–${cal.hi.toFixed(2)}, closest other ${cal.minNeg.toFixed(2)})</td></tr>` + rows.join('');

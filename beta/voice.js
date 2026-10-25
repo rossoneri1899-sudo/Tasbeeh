@@ -51,15 +51,15 @@ const Voice = (() => {
     for (let j = 0; j < NCEP; j++) { let v = 0; for (let k = 0; k < NMEL; k++) v += DCT[j][k] * mel[k]; c[j] = v; }
     // voicing: peak normalised autocorrelation for pitches 70-400 Hz, on the window halved to 8 kHz
     for (let i = 0; i < PW / 2; i++) half[i] = (w[2 * i] + w[2 * i + 1]) * 0.5;
-    let best = 0;
+    let best = 0, bestLag = 0;
     const N = PW / 2;
     for (let lag = 20; lag <= 114; lag++) {
       let xy = 0, xx = 0, yy = 0;
       for (let i = 0; i + lag < N; i++) { const a = half[i], b = half[i + lag]; xy += a * b; xx += a * a; yy += b * b; }
       const r = xy / Math.sqrt(xx * yy + 1e-12);
-      if (r > best) best = r;
+      if (r > best) { best = r; bestLag = lag; }
     }
-    return { c, db: 10 * Math.log10(s / FL + 1e-12), v: best };
+    return { c, db: 10 * Math.log10(s / FL + 1e-12), v: best, f0: bestLag ? 8000 / bestLag : 0 };
   }
 
   // Streaming resampler to 16 kHz (linear; the band above 3.8 kHz is already filtered out)
@@ -201,6 +201,44 @@ const Voice = (() => {
       return null;
     }
   }
+  // ---- voice profile: what the user's voice sounds like, whatever they are saying ----
+  // Per recording: average MFCCs and median pitch of its voiced frames.
+  function voiceStats(fs) {
+    const vf = fs.filter(f => f.v > 0.5 && f.f0 > 0); if (vf.length < 8) return null;
+    const mu = new Float32Array(NCEP); for (const f of vf) for (let j = 0; j < NCEP; j++) mu[j] += f.c[j] / vf.length;
+    const p = vf.map(f => f.f0).sort((a, b) => a - b);
+    return { mu, f0: p[Math.floor(p.length / 2)] };
+  }
+  // From many recordings (different adhkar are fine): spread of the averages, pitch range, and a distance limit
+  // set from how far the user's own recordings fall from the profile.
+  function profile(stats) {
+    stats = stats.filter(Boolean); if (stats.length < 6) return null;
+    const n = stats.length, mu = new Float32Array(NCEP), sd = new Float32Array(NCEP);
+    for (const s of stats) for (let j = 0; j < NCEP; j++) mu[j] += s.mu[j] / n;
+    for (const s of stats) for (let j = 0; j < NCEP; j++) sd[j] += (s.mu[j] - mu[j]) ** 2 / n;
+    for (let j = 0; j < NCEP; j++) sd[j] = Math.max(0.35, Math.sqrt(sd[j]));
+    const P = { mu, sd, f0lo: 0, f0hi: 0, thr: 0 };
+    const d = stats.map(s => voiceDist(P, s)).sort((a, b) => a - b), f = stats.map(s => s.f0).sort((a, b) => a - b);
+    P.thr = Math.max(1.6, pct(d, 0.95) * 1.5);
+    P.f0lo = pct(f, 0.05) * 0.75; P.f0hi = pct(f, 0.95) * 1.3;
+    return P;
+  }
+  function voiceDist(P, s) { let t = 0; for (let j = 0; j < NCEP; j++) t += ((s.mu[j] - P.mu[j]) / P.sd[j]) ** 2; return Math.sqrt(t / NCEP); }
+  // Does a stretch of sound sound like the user? true / false, or null if it can't tell.
+  // In tests the average MFCCs depended more on the words than on the speaker (your own voice saying a new
+  // dhikr was further from the profile than another speaker), so pitch range decides and the MFCC distance
+  // is only a loose check against sounds that aren't speech at all.
+  function soundsLikeUser(P, fs) {
+    const s = voiceStats(fs); if (!P || !s) return null;
+    return s.f0 >= P.f0lo && s.f0 <= P.f0hi && voiceDist(P, s) <= P.thr * 2.5;
+  }
+  // the recordings that agree with each other (drops a cough or a misheard sound picked up while learning)
+  function consistent(tpls) {
+    const n = tpls.length, med = [];
+    for (let i = 0; i < n; i++) { const d = []; for (let j = 0; j < n; j++) if (j !== i) d.push(bestScore(tpls[j], tpls[i])); d.sort((a, b) => a - b); med.push(d[Math.floor(d.length / 2)]); }
+    const m = med.slice().sort((a, b) => a - b)[Math.floor(n / 2)];
+    return tpls.map((_, i) => i).filter(i => med[i] <= m * 1.4);
+  }
   const toInt16 = x => Int16Array.from(x, v => Math.max(-32768, Math.min(32767, Math.round(v * 32768))));
   const fromInt16 = a => Float32Array.from(a, v => v / 32768);
   // cut quiet lead-in and tail off a recording
@@ -238,5 +276,5 @@ const Voice = (() => {
       };
     });
   }
-  return { SR, Resampler, Front, frames, template, Segmenter, Matcher, calibrate, bestScore, trim, toInt16, fromInt16, store, oldSamples };
+  return { SR, Resampler, Front, frames, template, Segmenter, Matcher, calibrate, bestScore, voiceStats, profile, voiceDist, soundsLikeUser, consistent, trim, toInt16, fromInt16, store, oldSamples };
 })();

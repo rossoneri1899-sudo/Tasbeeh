@@ -214,6 +214,13 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
 .dots i.on{background:var(--bead)}
 
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:40;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.2)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--sunk);border-radius:12px;padding:4px}
+.seg button{border:0;background:none;border-radius:9px;min-height:40px;font-size:14px;font-weight:500;cursor:pointer}
+.seg button[aria-checked="true"]{background:var(--surface);box-shadow:var(--shadow);font-weight:600}
+.tchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px}
+.tchips button{min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer}
+.tchips button.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.tchips button.wide{grid-column:span 2;font-size:15px}
 .toast .tact{margin-left:12px;border:0;background:var(--bead);color:#1B1405;border-radius:8px;padding:6px 10px;font-weight:600;cursor:pointer}
 .update{width:100%;border:0;border-radius:12px;padding:12px;background:var(--primary);color:var(--on-primary);font-weight:600;margin:6px 0;cursor:pointer}
 .ver{font-size:12px;color:var(--muted);text-align:center;margin-top:24px}
@@ -258,6 +265,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
       <svg id="beads" viewBox="0 0 300 300" aria-hidden="true"></svg>
       <span class="mid"><span class="num" id="num">0</span><span class="of" id="of">of 33</span></span>
     </button>
+    <button class="chip" id="targetBtn" style="margin-top:10px" aria-label="Change the target"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span>Target 33</span></button>
     <p class="hint" id="hint">Tap the beads to count, or tap the microphone and recite.</p>
   </section>
 
@@ -296,7 +304,8 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
     <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="setTitle">Settings</h1></header>
     <h2>Counting by voice</h2>
     <div class="card">
-      <div class="row"><div class="grow"><b id="teachName">Teach it this dhikr</b><small id="teachTxt"></small></div><button class="btn sm main" id="tuneBtn">Teach</button></div>
+      <div class="row"><div class="grow"><b>Train my voice</b><small id="voiceTxt"></small></div><button class="btn sm main" id="voiceBtn">Train</button></div>
+      <div class="row"><div class="grow"><b id="teachName">Teach it this dhikr</b><small id="teachTxt"></small></div><button class="btn sm" id="tuneBtn">Teach</button></div>
       <div class="row"><div class="grow"><label for="sens"><b>Sensitivity</b></label><small id="sensTxt">Lower it if other sounds get counted; raise it if it misses you.</small><input type="range" id="sens" min="0" max="100" step="1"></div></div>
       <div class="row"><div class="grow"><label for="gap"><b>Pause between recitations</b></label><small id="gapTxt"></small><input type="range" id="gap" min="200" max="700" step="10"></div></div>
       <div class="row"><div class="grow"><b>Count recitations said without pauses</b><small>For adhkar that aren’t taught: a long stretch counts as several, by your usual length. Leave off if one slow recitation counts as more.</small></div><input type="checkbox" class="sw" id="split" aria-label="Count recitations said without pauses"></div>
@@ -312,7 +321,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
       <div class="row"><div class="grow"><b>Show transliteration</b></div><input type="checkbox" class="sw" id="showTr" aria-label="Show transliteration"></div>
       <div class="row"><div class="grow"><b>Show translation</b></div><input type="checkbox" class="sw" id="showEn" aria-label="Show translation"></div>
       <div class="row"><div class="grow"><b>Move to the next one when done</b></div><input type="checkbox" class="sw" id="auto" aria-label="Move to the next one when done"></div>
-      <div class="row"><div class="grow"><label for="target"><b>Target for this dhikr</b></label><small id="targetTxt"></small></div><input type="number" id="target" min="1" max="10000" inputmode="numeric" style="width:96px;font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"></div>
+      <div class="row"><div class="grow"><b>Targets</b><small id="targetTxt"></small></div><button class="btn sm" id="targetSet">Change</button></div>
     </div>
     <h2>App</h2>
     <div class="card">
@@ -322,6 +331,22 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
       <div class="row"><div class="grow"><b>Reset today’s counts</b><small>History is kept.</small></div><button class="btn sm" id="resetDay">Reset</button></div>
     </div>
     <p class="ver">Hisn al-Muslim recitations by Hamad Al-Duraihim; Qur’an by Mishary Alafasy (everyayah.com). Translations and references from Hisn al-Muslim; Qur’an translation Sahih International.<br>Version <span id="ver"></span></p>
+  </div>
+</section>
+
+<!-- Target -->
+<section class="sheet" id="tgt" role="dialog" aria-modal="true" aria-labelledby="tgtTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="tgtTitle">Target</h1></header>
+    <h2>Apply to</h2>
+    <div class="seg" id="tgtScope" role="radiogroup" aria-label="Apply to">
+      <button role="radio" data-scope="one" aria-checked="true">This dhikr</button><button role="radio" data-scope="cat" aria-checked="false">This list</button><button role="radio" data-scope="all" aria-checked="false">Everything</button>
+    </div>
+    <p class="muted" id="tgtFor" style="margin:8px 2px 0;font-size:14px"></p>
+    <h2>Count to</h2>
+    <div class="tchips" id="tgtChips"></div>
+    <form class="card" id="tgtForm" style="margin-top:12px"><div class="field"><label for="tgtN">Your own number</label><div style="display:flex;gap:8px"><input id="tgtN" type="number" min="1" max="100000" inputmode="numeric" placeholder="e.g. 313"><button class="btn main" type="submit">Set</button></div></div></form>
+    <button class="btn wide" id="tgtReset" style="margin-top:12px">Back to the usual targets</button>
   </div>
 </section>
 

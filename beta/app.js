@@ -4,7 +4,7 @@
 
 // Bump on every deploy. The page compares it with the live copy when it opens or comes back to the foreground,
 // because phones resume home-screen apps from memory instead of reloading them.
-const APP_VERSION = 'b3';
+const APP_VERSION = 'b4';
 // Recordings not trimmed into this repo stream from the Hisn al-Muslim collection, pinned to one commit
 const AUDIO_CDN = 'https://cdn.jsdelivr.net/gh/rn0x/Adhkar-json@93dc3fc489e4291da8816265920b3cb7e2c3b569/audio/';
 const ROOT = location.pathname.includes('/beta/') ? '../' : './'; // the repo's audio/ and icons live at the site root
@@ -63,9 +63,10 @@ if (!history) { // first run: bring over the old app's history so streaks carry 
 }
 if (st.day !== today) st = { day: today, c: {}, n: st.n || {}, sel: st.sel };
 const count = e => st.c[e.key] || 0;
-const target = e => st.n[e.key] || e.n;
+const NOLIMIT = -1; // stored target meaning "keep counting": the beads go round in 33s
+const target = e => st.n[e.key] === NOLIMIT ? Infinity : st.n[e.key] || e.n;
 const isDone = e => count(e) >= target(e);
-const nameOf = k => P[k] ? P[k].name : k;
+const nameOf = k => P[k] ? P[k].name : k === '_voice' ? 'Your voice' : k;
 
 function saveState() {
   save('state', st);
@@ -121,12 +122,14 @@ function render() {
 }
 let lastLit = -1;
 function drawCount(bump) {
-  const e = E0(), c = count(e), n = target(e);
+  const e = E0(), c = count(e), t = target(e), endless = !isFinite(t), n = endless ? 33 : t;
   $('num').textContent = c;
-  const rounds = Math.floor(c / n);
-  $('of').textContent = c >= n && n > 1 ? (c === n ? 'done' : 'of ' + n + ' · ' + (rounds + 1) + (rounds === 1 ? 'nd' : rounds === 2 ? 'rd' : 'th') + ' round') : n === 1 ? (c ? 'done' : 'once') : 'of ' + n;
-  $('ring').classList.toggle('done', c >= n);
-  $('ring').setAttribute('aria-label', 'Count one. ' + c + ' of ' + n);
+  const rounds = Math.floor(c / n), nth = r => r + (r === 2 ? 'nd' : r === 3 ? 'rd' : 'th');
+  $('of').textContent = endless ? (c >= 33 ? 'no limit · ' + nth(rounds + 1) + ' 33' : 'no limit')
+    : c >= n && n > 1 ? (c === n ? 'done' : 'of ' + n + ' · ' + nth(rounds + 1) + ' round') : n === 1 ? (c ? 'done' : 'once') : 'of ' + n;
+  $('ring').classList.toggle('done', !endless && c >= n);
+  $('ring').setAttribute('aria-label', 'Count one. ' + c + (endless ? '' : ' of ' + n));
+  $('targetBtn').querySelector('span').textContent = endless ? 'No limit' : 'Target ' + n;
   // a misbaha of up to 33 beads; for bigger targets each bead stands for several counts
   const N = n === 1 ? 0 : n <= 40 ? n : 33, per = n / (N || 1);
   const within = c >= n && c % n === 0 && c > 0 ? n : c % n;
@@ -195,12 +198,23 @@ function feedback() {
 // Sensitivity slider 0..100: how far above the room a sound must be (24..10 dB) and how loose a match may be.
 const sensDb = () => 24 - S.sens * 0.14;
 const matchMul = () => 0.85 + S.sens * 0.004;
-const samples = {}; // dhikr key -> {pos: [{id, f}], neg: [{id, f}]}; f = MFCC frames
-let calCache = {};
+// dhikr key -> {pos: [{id, f, st}], neg: [...]}; f = MFCC template, st = voice stats for the profile.
+// Key '_voice' holds "Train my voice" recordings: used for the profile only, never matched.
+const samples = {};
+let calCache = {}, profCache;
 const sampleSet = k => samples[k] || (samples[k] = { pos: [], neg: [] });
-const feats = x => Voice.template(x);
 const taught = k => !!(samples[k] && samples[k].pos.length >= 3);
-function addLocal(k, x, neg) { const r = { id: null, f: feats(x) }; sampleSet(k)[neg ? 'neg' : 'pos'].push(r); calCache = {}; return r; }
+const LEARN_N = 5; // recitations kept while learning a dhikr by itself
+function addLocal(k, x, neg) {
+  const r = { id: null, f: Voice.template(x), st: neg ? null : Voice.voiceStats(Voice.frames(x)) };
+  sampleSet(k)[neg ? 'neg' : 'pos'].push(r); calCache = {}; profCache = undefined; return r;
+}
+// what your voice sounds like, from every recording of you (any dhikr); null until there are 6
+function voiceProfile() {
+  if (profCache === undefined) profCache = Voice.profile(Object.values(samples).flatMap(s => s.pos.map(r => r.st)));
+  return profCache;
+}
+const profileCount = () => Object.values(samples).reduce((a, s) => a + s.pos.filter(r => r.st).length, 0);
 async function saveSample(k, x, neg) {
   const r = addLocal(k, x, neg);
   try { r.id = await Voice.store.add({ k, neg: !!neg, a: Voice.toInt16(x), at: Date.now() }); } catch (e) {}
@@ -209,7 +223,19 @@ async function saveSample(k, x, neg) {
 async function dropSamples(k) {
   const s = sampleSet(k);
   for (const r of s.pos.concat(s.neg)) { try { if (r.id != null) await Voice.store.del(r.id); } catch (e) {} }
-  s.pos = []; s.neg = []; calCache = {};
+  s.pos = []; s.neg = []; calCache = {}; profCache = undefined; delete pend[k];
+}
+// Learning as you recite: recitations counted by rhythm are kept; any you Undo are dropped. Once there are
+// LEARN_N that agree with each other they become this dhikr's recordings and matching takes over.
+const pend = {}; // dhikr key -> [{x: audio, at}]
+async function learnFromPending(k) {
+  const list = pend[k] || []; if (list.length < LEARN_N) return;
+  const keep = Voice.consistent(list.map(c => Voice.template(c.x)));
+  if (keep.length < 3) { list.shift(); return; } // too different from each other: wait for more
+  for (const i of keep) await saveSample(k, list[i].x, false);
+  delete pend[k];
+  if (listening && E0().k === k) arm();
+  toast('Learned how you say ' + nameOf(k) + '. Now only sounds like yours count.');
 }
 async function loadSamples() {
   try {
@@ -232,7 +258,7 @@ async function loadSamples() {
 // (SubhanAllah / SubhanAllahi wa bihamdihi), which would otherwise reject each other.
 function calFor(k) {
   if (k in calCache) return calCache[k];
-  const s = samples[k]; if (!s || s.pos.length < 3) return (calCache[k] = null);
+  const s = samples[k]; if (!P[k] || !s || s.pos.length < 3) return (calCache[k] = null);
   const key = letters(P[k].ar) ? P[k].ar.replace(/[^ء-ي]/g, '') : '';
   const neg = s.neg.map(r => r.f);
   for (const [k2, s2] of Object.entries(samples)) {
@@ -306,14 +332,21 @@ function arm() {
   listenHint();
 }
 const teachBtn = label => '<button class="linkbtn" data-teach>' + (label || 'Teach it') + '</button>';
+const canLearn = k => letters(P[k].ar) <= 160; // longer duas are too varied to match; they count by rhythm
 function listenHint() {
   const k = E0().k;
   if (!listening) { $('hint').textContent = 'Tap the beads to count, or tap the microphone and recite.'; return; }
-  $('hint').innerHTML = match ? 'Counting sounds like your recordings of ' + esc(nameOf(k)) + '.'
-    : 'Counting by rhythm only, so other voices can count. ' + teachBtn('Teach it ' + esc(nameOf(k))) + ' to fix that.';
+  if (match) { $('hint').textContent = 'Counting sounds like your recordings of ' + nameOf(k) + '.'; return; }
+  const others = voiceProfile() ? 'Voices that don’t sound like you are ignored.' : 'Until then, other voices can count.';
+  $('hint').innerHTML = canLearn(k)
+    ? 'Learning how you say it: ' + (pend[k] || []).length + ' of ' + LEARN_N + '. ' + others + ' ' + teachBtn('Teach it now')
+    : 'Counting by rhythm. ' + others;
 }
 function listenMsg() { return 'Listening. Recite <b>' + esc(nameOf(E0().k)) + '</b>.'; }
+const fbuf = new Array(1500); // last 15 s of frames, for judging a whole stretch of sound
+const framesOf = s => { const o = []; for (let i = s.startF; i <= s.endF; i++) { const f = fbuf[i % 1500]; if (f && f.i === i) o.push(f); } return o; };
 function onListen(fr) {
+  fbuf[fr.i % 1500] = fr;
   if (saying || performance.now() < muteUntil) { seg.cancel(); match && match.reset(); return; }
   const s = seg.push(fr);
   meter(fr);
@@ -344,13 +377,15 @@ function onListen(fr) {
     else setStatus('That was longer than usual, so it wasn’t counted. Pause briefly between recitations.');
     return;
   }
-  learnLen(k, s.dur); lastHit = { st: s.startF, en: s.endF, at: Date.now() };
+  if (Voice.soundsLikeUser(voiceProfile(), framesOf(s)) === false) { setStatus('That didn’t sound like your voice, so it wasn’t counted.'); return; }
+  learnLen(k, s.dur); lastHit = { st: s.startF, en: s.endF, at: Date.now(), learn: true };
   add(1, 'voice');
+  if (canLearn(k)) {
+    const x = clipOf(lastHit);
+    if (x) { (pend[k] = pend[k] || []).push({ x, at: Date.now() }); learnFromPending(k).then(listenHint); }
+  }
 }
 async function start() {
-  const k = E0().k;
-  // a dhikr that's repeated is worth teaching first; ask once per dhikr
-  if (!taught(k) && target(E0()) >= 3 && !V.skip[k] && letters(P[k].ar) <= 160) { openTeach(k, true); return; }
   const mic = $('mic');
   mic.classList.add('busy'); setStatus('Starting the microphone…');
   try { await openMic(); } catch (e) { mic.classList.remove('busy'); closeMic(); micError(e); return; }
@@ -460,6 +495,7 @@ async function diagnostics() {
     'Audio worklet: ' + (window.AudioWorkletNode ? 'yes' : 'no (fallback used)'),
     'Keep screen on: ' + ('wakeLock' in navigator ? 'supported' : 'not supported'),
     'Voice settings: sensitivity ' + S.sens + ', pause ' + S.gap + ' ms, split ' + (S.split ? 'on' : 'off'),
+    'Voice profile: ' + (voiceProfile() ? 'ready (' + profileCount() + ' recordings, pitch ' + Math.round(voiceProfile().f0lo) + '–' + Math.round(voiceProfile().f0hi) + ' Hz)' : profileCount() + ' of 6 recordings'),
     'Taught adhkar: ' + (Object.entries(samples).filter(([, s]) => s.pos.length).map(([k, s]) => nameOf(k) + ' ' + s.pos.length + (s.neg.length ? '/-' + s.neg.length : '') + (calFor(k) ? ' (limit ' + calFor(k).thr.toFixed(1) + ')' : '')).join(', ') || 'none'),
     'Browser: ' + UA
   ];
@@ -491,22 +527,29 @@ async function testMic() {
   testing = false; $('diagMic').disabled = false;
 }
 
-// ---------- teach it a dhikr ----------
-// 2 s of quiet sets the room level, then 5 recitations become the recordings it matches against.
+// ---------- teach it a dhikr / train my voice ----------
+// 2 s of quiet sets the room level, then recitations become recordings. For a dhikr (5 of them) they're what
+// it matches against. For "Train my voice" (k = '_voice', 8 of any adhkar) they only build the voice profile.
 let teaching = null;
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
-function dots(n) { $('tuneDots').innerHTML = '<i></i><i></i><i></i><i></i><i></i>'; [...$('tuneDots').children].forEach((d, i) => d.classList.toggle('on', i < n)); }
+function dots(n, N) { $('tuneDots').innerHTML = '<i></i>'.repeat(N); [...$('tuneDots').children].forEach((d, i) => d.classList.toggle('on', i < n)); }
 function openTeach(k, thenListen) {
   if (listening) stop();
-  teaching = { k, thenListen };
-  const have = samples[k] ? samples[k].pos.length : 0, name = nameOf(k);
-  $('tuneTitle').textContent = 'Teach it ' + name;
-  $('tuneMsg').textContent = have >= 3 ? 'It already knows ' + have + ' of your recordings' : 'Teach it how you say this';
-  $('tuneSub').textContent = 'Stay quiet for 2 seconds, then say ' + name + ' 5 times with a short pause between each. After that it only counts sounds like yours, so other voices and noise don’t count.';
-  dots(0); $('tuneThr').hidden = true; $('tuneLv').style.width = '0';
-  $('tuneGo').textContent = have >= 3 ? 'Record 5 more' : 'Begin'; $('tuneGo').disabled = false; $('tuneGo').onclick = runTeach;
+  const general = k === '_voice', N = general ? 8 : 5;
+  teaching = { k, thenListen, N };
+  const have = samples[k] ? samples[k].pos.length : 0, name = general ? 'your voice' : nameOf(k);
+  $('tuneTitle').textContent = general ? 'Train my voice' : 'Teach it ' + name;
+  if (general) {
+    $('tuneMsg').textContent = have ? 'It has ' + profileCount() + ' recordings of your voice' : 'Teach it what your voice sounds like';
+    $('tuneSub').textContent = 'Stay quiet for 2 seconds, then say any adhkar 8 times with a short pause after each: SubhanAllah, Alhamdulillah, Allahu Akbar, whatever you like. After that, voices that don’t sound like you (other people, the TV) aren’t counted, even for adhkar it hasn’t learned yet.';
+  } else {
+    $('tuneMsg').textContent = have >= 3 ? 'It already knows ' + have + ' of your recordings' : 'Teach it how you say this';
+    $('tuneSub').textContent = 'Stay quiet for 2 seconds, then say ' + name + ' 5 times with a short pause between each. After that it only counts sounds like yours. (It also learns by itself from your first 5 recitations.)';
+  }
+  dots(0, N); $('tuneThr').hidden = true; $('tuneLv').style.width = '0';
+  $('tuneGo').textContent = have >= 3 ? 'Record ' + N + ' more' : 'Begin'; $('tuneGo').disabled = false; $('tuneGo').onclick = runTeach;
   const alt = $('tuneAlt'); alt.hidden = false; delete alt.dataset.armed;
-  if (thenListen) { alt.textContent = 'Count without teaching'; alt.onclick = () => { V.skip[k] = true; saveVoice(); closeSheet(); start(); }; }
+  if (thenListen) { alt.textContent = 'Not now'; alt.onclick = () => { closeSheet(); start(); }; }
   else if (have) {
     alt.textContent = 'Forget these recordings';
     alt.onclick = async () => {
@@ -520,10 +563,10 @@ async function runTeach() {
   const tc = teaching; if (!tc) return;
   $('tuneGo').disabled = true; $('tuneAlt').hidden = true;
   try { await openMic(); } catch (e) { closeSheet(); micError(e); return; }
-  const k = tc.k, name = nameOf(k), quiet = [], durs = [], gaps = [], peaks = [];
+  const k = tc.k, N = tc.N, general = k === '_voice', name = general ? 'any adhkar' : nameOf(k), quiet = [], durs = [], gaps = [], peaks = [];
   let t0 = null, phase = 'quiet', sg = null, lastEnd = null, got = 0, floor = 0;
   tc.active = true;
-  $('tuneMsg').textContent = 'Stay quiet…'; dots(0);
+  $('tuneMsg').textContent = 'Stay quiet…'; dots(0, N);
   const finish = ok => {
     if (phase === 'done') return; phase = 'done';
     onFrame = null; closeMic(); tc.active = false;
@@ -539,10 +582,15 @@ async function runTeach() {
     const want = Math.max(10, Math.min(24, Math.min(tc.sens, (median(peaks) - floor) * 0.5)));
     S.sens = Math.round(Math.max(0, Math.min(100, (24 - want) / 0.14)));
     if (gaps.length) S.gap = Math.round(Math.max(250, Math.min(600, median(gaps) * 0.6)) / 10) * 10;
-    V.T[k] = Math.round(median(durs)); V.N[k] = Math.max(V.N[k] || 0, 3);
-    saveVoice(); saveSettings(); calCache = {};
-    const c = calFor(k);
+    if (!general) { V.T[k] = Math.round(median(durs)); V.N[k] = Math.max(V.N[k] || 0, 3); delete pend[k]; }
+    saveVoice(); saveSettings(); calCache = {}; profCache = undefined;
     $('tuneMsg').textContent = 'Ready';
+    if (general) {
+      $('tuneSub').textContent = voiceProfile() ? 'It knows your voice now. Voices that don’t sound like you won’t count. Each dhikr still learns your exact words from your first 5 recitations.' : 'Saved. A few more recordings and the voice profile will be ready.';
+      $('tuneGo').textContent = 'Done'; $('tuneGo').onclick = closeSheet; $('tuneAlt').hidden = true;
+      return;
+    }
+    const c = calFor(k);
     $('tuneSub').textContent = 'It now counts only sounds like your ' + samples[k].pos.length + ' recordings of ' + name + '. If it misses one, tap the beads and it will offer to learn from it; if it counts something wrong, Undo teaches it that too.' + (c && c.minNeg < c.thr * 1.2 ? ' It sounds close to another dhikr you taught, so it will be strict.' : '');
     $('tuneGo').textContent = 'Start counting'; $('tuneGo').onclick = () => { closeSheet(); start(); };
     $('tuneAlt').textContent = 'Done'; $('tuneAlt').onclick = closeSheet;
@@ -561,25 +609,26 @@ async function runTeach() {
         sg = new Voice.Segmenter({ sens: tc.sens, gap: 300 }); sg.floor = floor;
         $('tuneThr').hidden = false; $('tuneThr').style.left = Math.max(0, Math.min(100, (floor + tc.sens + 90) * 1.4)) + '%';
         phase = 'speak'; t0 = fr.i;
-        $('tuneMsg').textContent = 'Now say ' + name; $('tuneSub').textContent = '1 of 5';
+        $('tuneMsg').textContent = 'Now say ' + name; $('tuneSub').textContent = '1 of ' + N;
         $('tuneGo').textContent = 'Finish'; $('tuneGo').onclick = () => finish(got >= 3);
       }
       return;
     }
     if (phase !== 'speak') return;
-    if (el > 45000) return finish(got >= 3);
+    if (el > 60000) return finish(got >= 3);
     const s = sg.push(fr);
     if (!s || s.rejected || s.dur < 250 || s.voicedMs < s.dur * 0.25) return;
     const x = front.clip(Math.max(0, s.startF - 5), s.endF + 5); if (!x) return;
     const y = Voice.trim(x); if (y.length < Voice.SR * 0.25) return;
     saveSample(k, y, false); got++;
     durs.push(s.dur); peaks.push(s.peak); if (lastEnd != null) gaps.push((s.startF - lastEnd) * 10); lastEnd = s.endF;
-    dots(got); $('tuneSub').textContent = got < 5 ? (got + 1) + ' of 5' : '';
+    dots(got, N); $('tuneSub').textContent = got < N ? (got + 1) + ' of ' + N : '';
     if (got >= 3) $('tuneGo').disabled = false;
-    if (got >= 5) finish(true);
+    if (got >= N) finish(true);
   };
 }
 $('tuneBtn').onclick = () => { closeSheet(); openTeach(E0().k, false); };
+$('voiceBtn').onclick = () => { closeSheet(); openTeach('_voice', false); };
 
 // ---------- pronunciation ----------
 let saying = false;
@@ -637,7 +686,8 @@ function renderList() {
         const li = document.createElement('li'), b = document.createElement('button'), fin = isDone(e);
         b.className = 'item' + (fin ? ' fin' : ''); if (e === E0()) b.setAttribute('aria-current', 'true');
         b.innerHTML = '<span></span><span class="p"></span>'; b.children[0].textContent = nameOf(e.k);
-        b.children[1].textContent = fin ? '✓' : count(e) ? count(e) + '/' + target(e) : '×' + target(e);
+        const tg = isFinite(target(e)) ? target(e) : '∞';
+        b.children[1].textContent = fin ? '✓' : count(e) ? count(e) + '/' + tg : '×' + tg;
         b.onclick = () => { select(E.indexOf(e)); closeDrawer(); };
         li.appendChild(b); ul.appendChild(li);
       }
@@ -707,11 +757,14 @@ $('undo').onclick = async () => {
   const wasVoice = lastAdd && lastAdd.how === 'voice';
   add(-1, 'tap'); lastAdd = null;
   if (!wasVoice) return;
-  if (listening && match && fresh(lastHit)) {
-    const x = clipOf(lastHit), k = E0().k; lastHit = null;
-    if (x) { await saveSample(k, x, true); arm(); setStatus('Undone. It will be stricter about that sound.'); return; }
+  const k = E0().k;
+  if (listening && fresh(lastHit)) {
+    // while learning, the undone sound must not become one of its recordings
+    if (lastHit.learn && pend[k] && pend[k].length) pend[k].pop();
+    const x = clipOf(lastHit); lastHit = null;
+    if (x) { await saveSample(k, x, true); if (match) arm(); else listenHint(); setStatus('Undone. It will be stricter about that sound.'); return; }
   }
-  setStatus('Undone. ' + (match ? '' : 'Teaching it this dhikr stops other sounds counting. ' + teachBtn()));
+  setStatus('Undone.');
 };
 let resetArm = 0;
 $('reset').onclick = () => {
@@ -738,17 +791,49 @@ function fillSettings() {
   for (const id of ['split', 'vib', 'click', 'wake', 'showTr', 'showEn', 'auto']) $(id).checked = !!S[id];
   $('sens').value = S.sens; $('gap').value = S.gap;
   $('gapTxt').textContent = 'Counts after ' + (S.gap / 1000).toFixed(2) + ' s of quiet. Raise it if one long phrase counts as two.';
-  $('target').value = target(E0()); $('targetTxt').textContent = nameOf(E0().k) + ' · usually ' + E0().n;
+  const changed = Object.keys(st.n).length;
+  $('targetTxt').textContent = 'Set your own count for this dhikr, this list or everything, or count with no limit.' + (changed ? ' ' + changed + ' changed from the usual.' : '');
   $('vibNote').hidden = !IOS; $('ver').textContent = APP_VERSION;
-  const k = E0().k, n = samples[k] ? samples[k].pos.length : 0;
+  const k = E0().k, n = samples[k] ? samples[k].pos.length : 0, pc = profileCount();
+  $('voiceTxt').textContent = voiceProfile() ? 'Ready, from ' + pc + ' recordings of you. Voices that don’t sound like you aren’t counted, even for adhkar it hasn’t learned yet.'
+    : 'Optional, one minute. Say any adhkar 8 times so other people and the TV don’t count. It also builds itself as you recite (' + pc + ' of 6 recordings so far).';
+  $('voiceBtn').textContent = voiceProfile() ? 'More' : 'Train';
   $('teachName').textContent = 'Teach it ' + nameOf(k);
-  $('teachTxt').textContent = n >= 3 ? 'Taught with ' + n + ' of your recordings. Only sounds like them count.' : 'Not taught yet, so it counts by rhythm and other voices can count. Say it 5 times to fix that.';
+  $('teachTxt').textContent = n >= 3 ? 'Learned from ' + n + ' of your recordings. Only sounds like them count.'
+    : canLearn(k) ? 'Learns by itself from your first ' + LEARN_N + ' recitations (' + (pend[k] || []).length + ' so far), or teach it now.' : 'Too long to match, so it counts by rhythm.';
   $('tuneBtn').textContent = n >= 3 ? 'Manage' : 'Teach';
+  $('tuneBtn').disabled = !canLearn(k) && !n;
 }
 for (const id of ['split', 'vib', 'click', 'wake', 'showTr', 'showEn', 'auto']) $(id).onchange = () => { S[id] = $(id).checked; saveSettings(); if (id === 'wake') keepAwake(listening); };
 $('sens').oninput = () => { S.sens = +$('sens').value; saveSettings(); if (listening) arm(); };
 $('gap').oninput = () => { S.gap = +$('gap').value; saveSettings(); fillSettings(); if (listening) arm(); };
-$('target').onchange = () => { const e = E0(), v = Math.max(1, Math.min(10000, parseInt($('target').value) || e.n)); if (v === e.n) delete st.n[e.key]; else st.n[e.key] = v; saveState(); fillSettings(); };
+// ---------- targets ----------
+let tgtScope = 'one';
+const scopeEntries = () => tgtScope === 'all' ? E : tgtScope === 'cat' ? entriesOf(E0().cat) : [E0()];
+function openTarget() {
+  const e = E0(), t = target(e);
+  $('tgtFor').textContent = tgtScope === 'all' ? 'Every dhikr in every list (' + E.length + ').'
+    : tgtScope === 'cat' ? 'All ' + entriesOf(e.cat).length + ' in ' + catOf(e.cat).name + '.' : nameOf(e.k) + ' · usually ' + e.n + '.';
+  document.querySelectorAll('#tgtScope [data-scope]').forEach(b => b.setAttribute('aria-checked', b.dataset.scope === tgtScope));
+  const opts = [1, 3, 7, 10, 33, 34, 99, 100, 313, 500, 1000];
+  $('tgtChips').innerHTML = opts.map(v => '<button data-v="' + v + '"' + (tgtScope === 'one' && t === v ? ' class="on"' : '') + '>' + v + '</button>').join('') +
+    '<button class="wide' + (tgtScope === 'one' && !isFinite(t) ? ' on' : '') + '" data-v="' + NOLIMIT + '">No limit</button>';
+  $('tgtChips').querySelectorAll('[data-v]').forEach(b => b.onclick = () => setTarget(+b.dataset.v));
+  $('tgtN').value = tgtScope === 'one' && isFinite(t) && !opts.includes(t) ? t : '';
+  openSheet('tgt');
+}
+function setTarget(v) {
+  const list = scopeEntries();
+  for (const e of list) { if (v === e.n) delete st.n[e.key]; else st.n[e.key] = v; }
+  saveState(); closeSheet();
+  const what = v === NOLIMIT ? 'no limit' : v;
+  toast(list.length === 1 ? 'Target for ' + nameOf(list[0].k) + ': ' + what : 'Target set to ' + what + ' for ' + list.length + ' adhkar');
+}
+document.querySelectorAll('#tgtScope [data-scope]').forEach(b => b.onclick = () => { tgtScope = b.dataset.scope; openTarget(); });
+$('tgtForm').onsubmit = ev => { ev.preventDefault(); const v = parseInt($('tgtN').value); if (v >= 1 && v <= 100000) setTarget(v); };
+$('tgtReset').onclick = () => { const list = scopeEntries(); for (const e of list) delete st.n[e.key]; saveState(); closeSheet(); toast('Usual target' + (list.length > 1 ? 's' : '') + ' restored'); };
+$('targetBtn').onclick = () => { tgtScope = 'one'; openTarget(); };
+$('targetSet').onclick = () => { tgtScope = 'cat'; openTarget(); };
 $('resetDay').onclick = () => { if (Date.now() - resetArm > 2500) { resetArm = Date.now(); toast('Tap again to reset all of today’s counts'); return; } resetArm = 0; st.c = {}; saveState(); render(); toast('Today’s counts reset'); };
 
 // ---------- custom adhkar ----------
