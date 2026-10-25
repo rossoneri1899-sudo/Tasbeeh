@@ -110,7 +110,8 @@ const Voice = (() => {
   // Finds stretches of pitched voice. A frame is speech if it's loud enough above the room and pitch was heard
   // within the last 120 ms (consonants between vowels). A stretch ends after `gap` ms without speech.
   class Segmenter {
-    constructor(o) { this.o = Object.assign({ sens: 17, gap: 350, maxMs: 12000 }, o); this.floor = null; this.init = []; this.active = false; this.lastVoiced = -1e9; this.lastSpeech = -1e9; this.speech = false; }
+    // o.voiced = false: whisper mode, pitch isn't required (whispers have none), only loudness
+    constructor(o) { this.o = Object.assign({ sens: 17, gap: 350, maxMs: 12000, voiced: true }, o); this.floor = null; this.init = []; this.active = false; this.lastVoiced = -1e9; this.lastSpeech = -1e9; this.speech = false; }
     thresholds() { return { on: this.floor + this.o.sens, off: this.floor + this.o.sens * 0.65 }; }
     push(fr) {
       const t = fr.i * 10;
@@ -121,7 +122,7 @@ const Voice = (() => {
       }
       const th = this.thresholds(), loud = fr.db > (this.active ? th.off : th.on);
       if (fr.v > 0.5 && fr.db > th.off) this.lastVoiced = t;
-      const speech = this.speech = loud && t - this.lastVoiced <= 120;
+      const speech = this.speech = loud && (!this.o.voiced || t - this.lastVoiced <= 120);
       if (speech) {
         if (!this.active) { this.active = true; this.start = t; this.startF = fr.i; this.speechMs = 0; this.voicedMs = 0; this.peak = -200; }
         this.lastSpeech = t; this.endF = fr.i; this.speechMs += 10; if (fr.v > 0.5) this.voicedMs += 10; if (fr.db > this.peak) this.peak = fr.db;
@@ -148,7 +149,8 @@ const Voice = (() => {
   function dist(a, b) { let s = 0; for (let i = 0; i < NCEP; i++) { const d = a[i] - b[i]; s += d * d; } return Math.sqrt(s); }
   function newPath(f) { const M = f.length; return { f, D: new Float64Array(M + 1).fill(Infinity), L: new Int32Array(M + 1), S: new Int32Array(M + 1) }; }
   // One frame of open-start subsequence DTW: best match of the template ending at frame t, as
-  // [average frame distance, start frame], or [Infinity] if the match is squashed or stretched more than 2x.
+  // [average frame distance, start frame], or [Infinity] if the match is under 65% or over twice the template's
+  // length (shorter partial matches let the tail of one whisper count a second time).
   function step(p, c, t) {
     const { f, D, L, S } = p, M = f.length;
     let pD = 0, pL = 0, pS = t;
@@ -162,7 +164,7 @@ const Voice = (() => {
       pD = oD; pL = oL; pS = oS;
     }
     const dur = t - S[M] + 1;
-    if (D[M] === Infinity || dur < 0.5 * M || dur > 2 * M) return [Infinity];
+    if (D[M] === Infinity || dur < 0.65 * M || dur > 2 * M) return [Infinity];
     return [D[M] / L[M], S[M]];
   }
   function bestScore(tpl, seq) { const p = newPath(tpl); let b = Infinity; for (let t = 0; t < seq.length; t++) { const s = step(p, seq[t], t)[0]; if (s < b) b = s; } return b; }

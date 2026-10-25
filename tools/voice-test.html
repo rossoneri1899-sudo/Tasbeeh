@@ -71,6 +71,29 @@ tests.push(
   ['Profile: hiss and clatter can’t be judged (left to the other checks)', () => [noise(500, 0.2)].filter(x => likeUser(x) === true).length, 0],
   ['Learning: keeps the consistent recitations, drops the noise', () => { const k = V.consistent(picked); return k.length === 5 && !k.includes(2) ? 1 : 0; }, 1],
 );
+// whispers: breath noise through the same vowel shapes, no pitch
+function whisperVowel(ms, F1, F2, amp) {
+  const n = Math.round(ms * 16), x = new Float32Array(n); let a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+  const r = 0.97, c1 = 2 * r * Math.cos(2 * Math.PI * F1 / SR), c2 = 2 * r * Math.cos(2 * Math.PI * F2 / SR);
+  for (let i = 0; i < n; i++) { const w = rnd() * 2 - 1, y1 = w + c1 * a1 - r * r * b1, y2 = w + c2 * a2 - r * r * b2; b1 = a1; a1 = y1; b2 = a2; a2 = y2; x[i] = amp * Math.min(1, i / 400, (n - i) / 400) * (y1 * 0.02 + y2 * 0.014); }
+  return x;
+}
+const WA = (sp = 1, amp = 1) => cat([whisperVowel(150 * sp, 320, 800, amp), noise(50 * sp, 0.03 * amp), whisperVowel(160 * sp, 700, 1200, amp), whisperVowel(220 * sp, 650, 1100, amp), whisperVowel(260 * sp, 600, 1000, 0.9 * amp)]);
+const WB = () => cat([whisperVowel(180, 300, 2300, 1), whisperVowel(200, 500, 1800, 1), whisperVowel(160, 350, 2000, 1), whisperVowel(240, 450, 1700, 0.9)]);
+const wtpl = [WA(), WA(1.1), WA(0.92), WA(1.05), WA()].map(x => V.template(cat([sil(80), x, sil(80)])));
+const wcal = V.calibrate(wtpl, []);
+function wmatches(audio) { const s = new V.Segmenter({ sens: 12, gap: 350, voiced: false }), m = new V.Matcher(wtpl, wcal.thr * 1.05); let n = 0; for (const fr of V.frames(audio)) { s.push(fr); if (m.push(fr, s.speech)) n++; } return n; }
+// counted as the app counts in rhythm mode: normal mode also needs a quarter of the stretch to be pitched
+function wsegs(audio, voiced) { const s = new V.Segmenter({ sens: 17, gap: 350, voiced }); let n = 0; for (const fr of V.frames(audio)) { const r = s.push(fr); if (r && !r.rejected && r.dur >= 250 && (!voiced || r.voicedMs >= r.dur * 0.25)) n++; } return n; }
+tests.push(
+  ['Whisper: normal mode ignores whispers (pitch required)', () => wsegs(rep(() => WA(), 5, 450), true), 0],
+  ['Whisper: whisper mode finds 5 whispers', () => wsegs(rep(() => WA(), 5, 450), false), 5],
+  ['Whisper: 10 whispers match your whispered recordings', () => wmatches(rep(() => WA(0.9 + rnd() * 0.25), 10, 450)), 10],
+  ['Whisper: quiet whispers (-10 dB)', () => wmatches(rep(() => WA(1, 0.32), 5, 450)), 5],
+  ['Whisper: a different whispered dhikr', () => wmatches(rep(WB, 5, 450)), 0],
+  ['Whisper: hiss bursts', () => wmatches(cat([sil(500), noise(400, 0.05), sil(600), noise(600, 0.04), sil(600), noise(300, 0.06), sil(1000)])), 0],
+  ['Whisper: other people talking (voiced)', () => wmatches(cat([sil(500), tv, sil(400), tv, sil(1000)])), 0],
+);
 const rows = tests.map(([name, fn, want]) => { const got = fn(); return `<tr><td class="${got === want ? 'p' : 'f'}">${got === want ? 'pass' : 'FAIL'}</td><td>${name}</td><td>got ${got}, want ${want}</td></tr>`; });
 const pass = rows.filter(r => r.includes('"p"')).length;
 document.getElementById('out').innerHTML = `<tr><td colspan=3><b>${pass}/${tests.length} pass</b> · threshold ${cal.thr.toFixed(2)} (samples ${cal.lo.toFixed(2)}–${cal.hi.toFixed(2)}, closest other ${cal.minNeg.toFixed(2)})</td></tr>` + rows.join('');

@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<!-- APP_VERSION='13' (read by the old app's update check, so its users see the update banner; the real version is in app.js) -->
+<!-- APP_VERSION='14' (read by the old app's update check, so its users see the update banner; the real version is in app.js) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Amiri+Quran&family=Figtree:wght@300;400;500;600;700&display=swap">
@@ -309,6 +309,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
       <div class="row"><div class="grow"><b id="teachName">Teach it this dhikr</b><small id="teachTxt"></small></div><button class="btn sm" id="tuneBtn">Teach</button></div>
       <div class="row"><div class="grow"><label for="sens"><b>Sensitivity</b></label><small id="sensTxt">Lower it if other sounds get counted; raise it if it misses you.</small><input type="range" id="sens" min="0" max="100" step="1"></div></div>
       <div class="row"><div class="grow"><label for="gap"><b>Pause between recitations</b></label><small id="gapTxt"></small><input type="range" id="gap" min="200" max="700" step="10"></div></div>
+      <div class="row"><div class="grow"><b>I recite in a whisper</b><small>Whispers have no pitch, so they’re learned separately: tap the beads after each of your first 5 whispers of a dhikr (or teach it), then it counts your whispers by itself.</small></div><input type="checkbox" class="sw" id="whisper" aria-label="I recite in a whisper"></div>
       <div class="row"><div class="grow"><b>Count recitations said without pauses</b><small>For adhkar that aren’t taught: a long stretch counts as several, by your usual length. Leave off if one slow recitation counts as more.</small></div><input type="checkbox" class="sw" id="split" aria-label="Count recitations said without pauses"></div>
     </div>
     <h2>Feedback</h2>
