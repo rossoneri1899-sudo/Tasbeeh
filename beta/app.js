@@ -4,7 +4,7 @@
 
 // Bump on every deploy. The page compares it with the live copy when it opens or comes back to the foreground,
 // because phones resume home-screen apps from memory instead of reloading them.
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 // Recordings not trimmed into this repo stream from the Hisn al-Muslim collection, pinned to one commit
 const AUDIO_CDN = 'https://cdn.jsdelivr.net/gh/rn0x/Adhkar-json@93dc3fc489e4291da8816265920b3cb7e2c3b569/audio/';
 const ROOT = location.pathname.includes('/beta/') ? '../' : './'; // the repo's audio/ and icons live at the site root
