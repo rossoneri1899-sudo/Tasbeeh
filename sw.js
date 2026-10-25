@@ -1,40 +1,38 @@
-// Offline support. The page is network-first (so updates show up when online) and falls back to the cache offline.
-// CDN scripts and the speech engine's wasm are versioned URLs, so they are cache-first.
-// Whisper's model files are cached by transformers.js itself ("transformers-cache"), so they are left alone here.
-const CACHE='tasbeeh-v2';
-const CORE=['./','./index.html','./manifest.webmanifest','./icon-180.png','./icon-192.png','./icon-512.png',
-  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1'];
+// Offline support. App files are network-first (so updates show up when online) with a cache fallback.
+// Fonts are cached as they load. Recordings are left to the browser: media players need range (206) responses.
+// The same file serves the live app (site root) and the test channel (beta/), each with its own cache.
+const CHANNEL = new URL(self.registration.scope).pathname.includes('/beta/') ? 'beta' : 'app';
+const CACHE = 'tasbeeh-' + CHANNEL + '-4';
+const CORE = ['./', './index.html', './app.js', './voice.js', './adhkar.js', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
-self.addEventListener('install',e=>{
-  e.waitUntil(caches.open(CACHE).then(c=>Promise.all(CORE.map(u=>c.add(u).catch(()=>{})))).then(()=>self.skipWaiting()));
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
 });
-self.addEventListener('activate',e=>{
-  e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('tasbeeh-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
+self.addEventListener('activate', e => {
+  // drop this channel's old caches; the live app also removes the old app's cache and its 40 MB Whisper model
+  const stale = k => k !== CACHE && (k.startsWith('tasbeeh-' + CHANNEL + '-') || CHANNEL === 'app' && (/^tasbeeh-v\d+$/.test(k) || k === 'transformers-cache'));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(stale).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
-self.addEventListener('fetch',e=>{
-  const req=e.request;if(req.method!=='GET')return;
-  const url=new URL(req.url);
-  // Recordings are left to the browser: Safari's media player needs range (206) responses, which this cache doesn't produce
-  if(url.origin===location.origin&&url.pathname.includes('/audio/'))return;
-  if(url.origin===location.origin)e.respondWith(networkFirst(req,url));
-  else if(url.hostname==='cdn.jsdelivr.net')e.respondWith(cacheFirst(req));
+self.addEventListener('fetch', e => {
+  const req = e.request; if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (/\.mp3$/.test(url.pathname)) return;
+  if (url.origin === location.origin) e.respondWith(networkFirst(req, url));
+  else if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') e.respondWith(staleWhileRevalidate(req));
 });
-async function networkFirst(req,url){
-  const c=await caches.open(CACHE),key=url.origin+url.pathname; // ignore ?v=N
-  try{
-    // don't leave the user staring at a blank screen on a weak connection
-    // no-cache: always ask the server, so GitHub Pages' 10-minute browser cache can't serve an old page
-    const r=await Promise.race([fetch(url.href,{cache:'no-cache',credentials:'same-origin'}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('slow')),4000))]);
-    if(r.ok)c.put(key,r.clone());
+async function networkFirst(req, url) {
+  const c = await caches.open(CACHE), key = url.origin + url.pathname; // ignore ?v= and ?check=
+  try {
+    // no-cache: always ask the server, so GitHub Pages' 10-minute browser cache can't serve an old file
+    const r = await Promise.race([fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 4000))]);
+    if (r.ok && !url.search.includes('check=')) c.put(key, r.clone());
     return r;
-  }catch(err){
-    return (await c.match(key))||(req.mode==='navigate'&&((await c.match(url.origin+url.pathname.replace(/[^/]*$/,'')))||(await c.match('./index.html'))))||Response.error();
+  } catch (err) {
+    return (await c.match(key)) || (req.mode === 'navigate' && (await c.match(new URL('./', self.registration.scope).href) || await c.match(new URL('./index.html', self.registration.scope).href))) || Response.error();
   }
 }
-async function cacheFirst(req){
-  const c=await caches.open(CACHE),hit=await c.match(req,{ignoreVary:true});
-  if(hit)return hit;
-  const r=await fetch(req);
-  if(r.ok||r.type==='opaque')c.put(req,r.clone());
-  return r;
+async function staleWhileRevalidate(req) {
+  const c = await caches.open(CACHE), hit = await c.match(req);
+  const net = fetch(req).then(r => { if (r.ok || r.type === 'opaque') c.put(req, r.clone()); return r; }).catch(() => hit);
+  return hit || net;
 }

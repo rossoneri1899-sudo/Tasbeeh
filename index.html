@@ -4,909 +4,442 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tasbeeh">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#1F6F5B">
+<meta name="theme-color" content="#EEF2EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1614" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Count your tasbeeh and adhkar hands-free. It listens to you recite and counts each one.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
+<!-- APP_VERSION='12' (read by the old app's update check, so its users see the update banner; the real version is in app.js) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Amiri+Quran&family=Figtree:wght@300;400;500;600;700&display=swap">
 <title>Hands-free Tasbeeh</title>
 <style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
---bg:#EEF1EC;--surface:#FFFFFF;--ink:#14302B;--muted:#5B6F69;--accent:#1F6F5B;--accent-ink:#FFFFFF;--line:#D3DBD5;--warn:#9A5B12}
-@media (prefers-color-scheme:dark){:root{--bg:#0E1A1F;--surface:#16262C;--ink:#E7EFEA;--muted:#8FA6A0;--accent:#7CC4B0;--accent-ink:#0E1A1F;--line:#27393F;--warn:#E0A860}}
+/* Layout: one column, phone first. A misbaha of brass beads around the count; the reciting controls sit under the thumb. */
+:root{
+  --bg:#EEF2EF; --surface:#FFFFFF; --sunk:#E3E9E5; --ink:#13241F; --muted:#5B6C66; --line:#D2DBD6;
+  --primary:#1F5D52; --on-primary:#FFFFFF; --bead:#B07F22; --bead-soft:#E9D6AE; --bead-ink:#7A5512;
+  --warn:#9A4A14; --warn-soft:#F6E3D4; --ok:#2C6E49;
+  --f-ui:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-ar:"Amiri","Geeza Pro","Noto Naskh Arabic","Traditional Arabic",serif;
+  --f-q:"Amiri Quran","Amiri","Geeza Pro",serif;
+  --r:16px; --shadow:0 1px 2px rgba(19,36,31,.06),0 6px 24px rgba(19,36,31,.06);
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0C1614; --surface:#14221F; --sunk:#0F1B18; --ink:#E6EEEA; --muted:#93A8A1; --line:#263632;
+  --primary:#6CC3AE; --on-primary:#06201A; --bead:#D9A94E; --bead-soft:#4A3A1C; --bead-ink:#E8C27A;
+  --warn:#F0A46B; --warn-soft:#3A2418; --ok:#7FD0A0; --shadow:none; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0C1614; --surface:#14221F; --sunk:#0F1B18; --ink:#E6EEEA; --muted:#93A8A1; --line:#263632;
+  --primary:#6CC3AE; --on-primary:#06201A; --bead:#D9A94E; --bead-soft:#4A3A1C; --bead-ink:#E8C27A;
+  --warn:#F0A46B; --warn-soft:#3A2418; --ok:#7FD0A0; --shadow:none; color-scheme:dark}
 *,*::before,*::after{box-sizing:inherit}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:480px;margin:0 auto;padding:16px 16px 40px}
-h1{font-size:20px;margin:4px 0 12px}
-.stage{text-align:center;margin:18px 0 8px}
-.ar{font-family:"Geeza Pro","Noto Naskh Arabic",serif;font-size:40px;line-height:1.6;direction:rtl}
-.arwrap{display:flex;align-items:center;justify-content:center;gap:10px}
-.arwrap .ar{min-width:0}
-.arwrap .ar.long{flex:1}
-.say{flex:none;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--accent);display:flex;align-items:center;justify-content:center;padding:0}
-.say[hidden]{display:none}
-.say svg{width:22px;height:22px}
-.say .stop,.say.on .play{display:none}
-.say.on .stop{display:block}
-.say.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.ar.long{font-size:24px;line-height:1.9;max-height:40vh;overflow-y:auto}
-.en{font-size:14px;margin-top:4px}
-/* Left panel: slides in on phones, stays open on wide screens */
-.top{display:flex;align-items:center;gap:12px;margin:4px 0 8px}
-.top h1{margin:0}
-.crumb{font-size:14px;color:var(--muted)}
-.menu{flex:none;width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:flex;align-items:center;justify-content:center}
-.menu svg{width:22px;height:22px}
-.side{position:fixed;top:0;bottom:0;left:0;z-index:20;width:min(320px,86vw);background:var(--surface);border-right:1px solid var(--line);overflow-y:auto;
-  padding:calc(env(safe-area-inset-top,0px) + 8px) 0 calc(env(safe-area-inset-bottom,0px) + 16px);transform:translateX(-102%);transition:transform .25s,visibility 0s .25s;visibility:hidden}
-.side.open{transform:none;visibility:visible;transition:transform .25s}
-.scrim{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.35)}
-.sidehead{display:flex;align-items:center;justify-content:space-between;padding:4px 8px 8px 16px;font-weight:700;font-size:18px}
-.sidehead button{width:44px;height:44px;border:0;background:none;color:var(--muted);font-size:20px}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--f-ui);-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+button{font:inherit;color:inherit}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:6px 16px}
+
+/* header */
+.top{display:flex;align-items:center;gap:8px;min-height:52px}
+.icon{flex:none;width:44px;height:44px;border-radius:12px;border:0;background:transparent;color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.icon:active{background:var(--sunk)}
+.icon svg{width:24px;height:24px}
+.where{flex:1;min-width:0;border:0;background:none;text-align:left;padding:4px 6px;border-radius:10px;cursor:pointer}
+.where b{display:block;font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.where span{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* banners */
+.banner{display:flex;gap:12px;align-items:flex-start;background:var(--warn-soft);color:var(--ink);border-radius:var(--r);padding:12px 14px;margin:6px 0;font-size:15px}
+.banner.info{background:var(--sunk)}
+.banner b.t{display:block;margin-bottom:2px}
+.banner .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.suggest{align-self:flex-start;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px 6px 10px;font-size:14px;color:var(--ink);display:inline-flex;gap:6px;align-items:center;margin:2px 0 4px;cursor:pointer}
+.suggest i{width:8px;height:8px;border-radius:50%;background:var(--bead)}
+
+/* the dhikr text */
+.text{position:relative;text-align:center;padding:10px 4px 6px;touch-action:pan-y}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--bead-ink);margin:0 auto 4px;max-width:44ch;text-wrap:balance}
+.ar{font-family:var(--f-ar);direction:rtl;font-size:40px;line-height:1.75;margin:0 auto;max-width:20em;text-wrap:balance;word-spacing:.05em}
+.ar.q{font-family:var(--f-q);line-height:2.05}
+.ar.m{font-size:29px;line-height:1.85}
+.ar.l{font-size:23px;line-height:1.95}
+.ring .cord.whole{stroke-width:3;transition:stroke .25s}
+.ring.done .cord.whole{stroke:var(--bead);stroke-width:6}
+.scroll{max-height:38vh;overflow-y:auto;overscroll-behavior:contain;mask-image:linear-gradient(#000 82%,transparent);-webkit-mask-image:linear-gradient(#000 82%,transparent);padding-bottom:18px;border-radius:8px}
+.scroll.fits{mask-image:none;-webkit-mask-image:none}
+.tr{font-style:italic;color:var(--ink);opacity:.85;font-size:15.5px;margin:6px auto 0;max-width:46ch;text-wrap:pretty}
+.en{color:var(--muted);font-size:15px;margin:4px auto 0;max-width:46ch;text-wrap:pretty}
+.note{font-size:14px;color:var(--ink);background:var(--sunk);border-radius:12px;padding:8px 12px;margin:10px auto 0;max-width:46ch;text-align:left}
+.textacts{display:flex;justify-content:center;gap:4px;margin-top:6px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;height:36px;padding:0 12px;font-size:14px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.chip svg{width:18px;height:18px}
+.chip.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+
+/* bead ring counter */
+.counter{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:250px;padding:6px 0}
+.ring{position:relative;width:min(78vw,290px,42vh);aspect-ratio:1;max-width:100%;border:0;background:none;padding:0;border-radius:50%;cursor:pointer;touch-action:manipulation}
+.ring svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ring .cord{fill:none;stroke:var(--line);stroke-width:1.5}
+.ring .b{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .2s,stroke .2s}
+.ring .b.lit{fill:var(--bead);stroke:var(--bead)}
+.ring .b.new{animation:drop .35s ease-out}
+.ring .imam{fill:var(--bead-soft);stroke:var(--bead);stroke-width:1.5}
+@keyframes drop{0%{transform:scale(1.6)}100%{transform:scale(1)}}
+.ring .b{transform-box:fill-box;transform-origin:center}
+.ring .mid{position:absolute;inset:22%;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .12s}
+.ring:active .mid{transform:scale(.97)}
+.num{font-weight:300;font-size:clamp(48px,15vw,76px);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.of{font-size:14px;color:var(--muted);margin-top:6px;font-variant-numeric:tabular-nums}
+.done .num{color:var(--ok)}
+.hint{font-size:13px;color:var(--muted);margin-top:8px;text-align:center;min-height:18px}
+@media (prefers-reduced-motion:reduce){.ring .b.new{animation:none}.ring .mid{transition:none}}
+
+/* controls */
+.dock{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:6px 0 4px}
+.dock .side{display:flex;gap:6px}
+.dock .side.r{justify-content:flex-end}
+.round{width:52px;height:52px;border-radius:50%;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;cursor:pointer}
+.round svg{width:24px;height:24px}
+.round:disabled{opacity:.35}
+.mic{position:relative;width:84px;height:84px;border-radius:50%;border:0;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;cursor:pointer;box-shadow:var(--shadow)}
+.mic svg{width:34px;height:34px;position:relative}
+.mic .lv{position:absolute;inset:-7px;border-radius:50%;border:3px solid var(--bead);opacity:0;transform:scale(.9);transition:opacity .15s,transform .08s}
+.mic.on .lv{opacity:.9}
+.mic .stop{display:none}.mic.on .go{display:none}.mic.on .stop{display:block}
+.mic.busy{opacity:.7}
+.status{text-align:center;font-size:14.5px;color:var(--muted);min-height:42px;padding:4px 8px}
+.status b{color:var(--ink);font-weight:600}
+.status.err{color:var(--warn)}
+.linkbtn{border:0;background:none;padding:0 2px;color:var(--primary);font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+
+/* drawer + sheets */
+.scrim{position:fixed;inset:0;background:rgba(6,16,13,.42);z-index:20}
+.drawer{position:fixed;top:0;bottom:0;left:0;z-index:21;width:min(340px,88vw);background:var(--surface);overflow-y:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 8px) 0 calc(env(safe-area-inset-bottom,0px) + 20px);padding-left:env(safe-area-inset-left,0px);
+  transform:translateX(-104%);transition:transform .25s ease;visibility:hidden}
+.drawer.open{transform:none;visibility:visible}
+.dhead{display:flex;align-items:center;justify-content:space-between;padding:4px 8px 8px 18px}
+.dhead h2{margin:0;font-size:19px}
+.group{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:16px 18px 6px}
 .cat{border-top:1px solid var(--line)}
-.cathead{width:100%;display:flex;align-items:center;gap:8px;padding:14px 16px;border:0;background:none;color:var(--ink);font:600 16px system-ui;text-align:left}
-.cathead .n{margin-left:auto;font-weight:400;font-size:13px;color:var(--muted)}
-.cathead .arrow{transition:transform .2s;color:var(--muted)}
-.cathead[aria-expanded="true"] .arrow{transform:rotate(90deg)}
-.catnote{font-size:13px;color:var(--muted);padding:0 16px 8px}
+.cathead{width:100%;display:flex;align-items:center;gap:10px;padding:13px 16px 13px 18px;border:0;background:none;text-align:left;font-weight:600;font-size:16px;cursor:pointer}
+.cathead .n{margin-left:auto;font-weight:400;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cathead .arw{color:var(--muted);transition:transform .2s;width:16px}
+.cathead[aria-expanded="true"] .arw{transform:rotate(90deg)}
+.catnote{font-size:13px;color:var(--muted);padding:0 18px 8px}
 .items{list-style:none;margin:0;padding:0 8px 10px}
-.item{width:100%;display:flex;align-items:center;gap:10px;padding:11px 10px;border:0;border-radius:10px;background:none;color:var(--ink);font:15px/1.3 system-ui;text-align:left}
-.item[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
+.item{width:100%;display:flex;align-items:center;gap:10px;padding:10px 10px;border:0;border-radius:10px;background:none;text-align:left;font-size:15px;line-height:1.3;cursor:pointer}
+.item[aria-current="true"]{background:var(--sunk);box-shadow:inset 3px 0 0 var(--bead)}
 .item .p{margin-left:auto;flex:none;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
-.item[aria-current="true"] .p{color:inherit;opacity:.85}
-.item.done .p{color:var(--accent);font-weight:700}
-.item.done[aria-current="true"] .p{color:inherit}
-.sheet{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
-.sheetin{max-width:480px;margin:0 auto;padding:16px 16px 40px}
-.sheet h2{font-size:16px;margin:22px 0 8px}
+.item.fin .p{color:var(--ok);font-weight:700}
+.dfoot{display:grid;gap:4px;padding:10px 10px 0;border-top:1px solid var(--line);margin-top:6px}
+.dlink{display:flex;align-items:center;gap:12px;padding:12px 10px;border:0;background:none;border-radius:10px;text-align:left;font-size:15px;cursor:pointer}
+.dlink svg{width:22px;height:22px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.drawer,.cathead .arw{transition:none}}
+
+.sheet{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;overscroll-behavior:contain}
+.sheetin{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 6px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 40px) max(16px,env(safe-area-inset-left,0px))}
+.sheet h2{font-size:15px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:26px 0 8px}
+.sheet h1{font-size:20px;margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:4px 0}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line);min-height:52px}
+.row:first-child{border-top:0}
+.row .grow{flex:1;min-width:0}
+.row small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:2px}
+.row input[type=range]{width:100%;accent-color:var(--primary)}
+.sw{appearance:none;-webkit-appearance:none;width:48px;height:28px;border-radius:999px;background:var(--line);position:relative;flex:none;cursor:pointer;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw:checked{background:var(--primary)}
+.sw:checked::after{transform:translateX(20px)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:12px;min-height:44px;padding:10px 16px;font-size:15px;font-weight:500;cursor:pointer}
+.btn.main{background:var(--primary);color:var(--on-primary);border-color:var(--primary);font-weight:600}
+.btn.wide{width:100%}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:14px}
+.btn:disabled{opacity:.5}
+.field{display:grid;gap:6px;padding:12px 14px;border-top:1px solid var(--line)}
+.field:first-child{border-top:0}
+.field label{font-size:14px;font-weight:600}
+.field input,.field textarea{font:inherit;font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.field textarea{min-height:84px;resize:vertical}
+.field .ar-in{font-family:var(--f-ar);font-size:22px;direction:rtl}
+.muted{color:var(--muted)}
+.prose{font-size:15px;line-height:1.55}
+.prose p{margin:8px 0}
+.steps{margin:8px 0;padding-left:22px}
+.steps li{margin:6px 0}
+pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--sunk);border-radius:12px;padding:12px;margin:0}
+
+/* history */
 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center}
 .tile.hero{grid-column:1/-1;padding:18px 12px}
-.tile .big{font:700 56px/1 system-ui;font-variant-numeric:tabular-nums}
-.tile .mid{font:700 24px/1.1 system-ui;font-variant-numeric:tabular-nums}
+.tile .big{font-weight:300;font-size:56px;line-height:1;font-variant-numeric:tabular-nums}
+.tile .mid2{font-weight:600;font-size:22px;font-variant-numeric:tabular-nums}
 .tile .lbl{font-size:13px;color:var(--muted);margin-top:4px}
 .tile .sub{font-size:14px;margin-top:8px}
-.routrow{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:6px;font-size:15px}
-.routrow .rv{color:var(--muted);font-variant-numeric:tabular-nums}
 .calhead{display:flex;align-items:center;justify-content:space-between;margin-top:22px}
 .calhead h2{margin:0}
-.calhead .menu{font-size:22px}
-.calhead .menu:disabled{opacity:.35}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
-.cal .wd{text-align:center;font-size:12px;color:var(--muted);padding-bottom:2px}
-.cal .day{aspect-ratio:1;border:0;border-radius:8px;font:13px system-ui;color:var(--ink);font-variant-numeric:tabular-nums}
-.cal .day:disabled{background:none;color:var(--line)}
+.cal .wd{text-align:center;font-size:12px;color:var(--muted)}
+.cal .day{aspect-ratio:1;border:0;border-radius:8px;font-size:13px;font-variant-numeric:tabular-nums;cursor:pointer}
+.cal .day:disabled{background:none;color:var(--line);cursor:default}
 .cal .today{font-weight:800}
 .cal .sel{outline:2px solid var(--ink);outline-offset:1px}
-/* one hue, light to dark: more dhikr = stronger green */
 .l0{background:none;box-shadow:inset 0 0 0 1px var(--line)}
-.l1{background:color-mix(in srgb,var(--accent) 25%,var(--surface))}
-.l2{background:color-mix(in srgb,var(--accent) 50%,var(--surface))}
-.l3{background:color-mix(in srgb,var(--accent) 75%,var(--surface))}
-.l4{background:var(--accent)}
-.cal .l3,.cal .l4{color:var(--accent-ink)}
+.l1{background:color-mix(in srgb,var(--bead) 22%,var(--surface))}
+.l2{background:color-mix(in srgb,var(--bead) 45%,var(--surface))}
+.l3{background:color-mix(in srgb,var(--bead) 70%,var(--surface))}
+.l4{background:var(--bead)}
+.cal .l3,.cal .l4{color:#1B1405}
 .legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12px;color:var(--muted);margin-top:10px}
 .legend i{width:14px;height:14px;border-radius:4px;display:inline-block}
-.legend span{flex-basis:100%}
-.daydetail h3{font-size:15px;margin:22px 0 6px}
-.donecats{font-size:14px;margin:0 0 8px}
 .daylist{list-style:none;margin:0;padding:0}
-.daylist li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
-.daylist li span:last-child{font-variant-numeric:tabular-nums;color:var(--muted)}
-@media (min-width:900px){
-  .side{transform:none;visibility:visible;transition:none}
-  body{padding-left:320px}
-  .menu,.sidehead button,.scrim{display:none}
+.daylist li{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px}
+.daylist li span:last-child{color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* tune-up meter */
+.meterbox{position:relative;height:14px;border-radius:7px;background:var(--sunk);overflow:hidden;margin:12px 0}
+.meterbox i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--primary);transition:width .06s}
+.meterbox u{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--bead)}
+.bigmsg{font-size:22px;font-weight:600;text-align:center;margin:18px 0 6px;text-wrap:balance}
+.dots{display:flex;justify-content:center;gap:10px;margin:14px 0}
+.dots i{width:16px;height:16px;border-radius:50%;border:2px solid var(--bead)}
+.dots i.on{background:var(--bead)}
+
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:40;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.2)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--sunk);border-radius:12px;padding:4px}
+.seg button{border:0;background:none;border-radius:9px;min-height:40px;font-size:14px;font-weight:500;cursor:pointer}
+.seg button[aria-checked="true"]{background:var(--surface);box-shadow:var(--shadow);font-weight:600}
+.tchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px}
+.tchips button{min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer}
+.tchips button.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.tchips button.wide{grid-column:span 2;font-size:15px}
+.toast .tact{margin-left:12px;border:0;background:var(--bead);color:#1B1405;border-radius:8px;padding:6px 10px;font-weight:600;cursor:pointer}
+.update{width:100%;border:0;border-radius:12px;padding:12px;background:var(--primary);color:var(--on-primary);font-weight:600;margin:6px 0;cursor:pointer}
+.ver{font-size:12px;color:var(--muted);text-align:center;margin-top:24px}
+
+@media (min-width:980px){
+  .drawer{transform:none;visibility:visible;transition:none;box-shadow:1px 0 0 var(--line)}
+  body{padding-left:340px}
+  #menuBtn,#closeDrawer,.scrim{display:none!important}
 }
-@media (prefers-reduced-motion:reduce){.side,.cathead .arrow{transition:none}}
-.tr{color:var(--muted);font-size:15px}
-.ring{position:relative;width:240px;height:240px;margin:14px auto}
-.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
-.ring circle{fill:none;stroke-width:10}
-.ring .bg{stroke:var(--line)}
-.ring .fg{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .25s}
-.ring button{position:absolute;inset:22px;border-radius:50%;border:0;background:var(--surface);color:var(--ink);font:700 64px/1 system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.ring button small{font:400 14px system-ui;color:var(--muted);margin-top:6px}
-.ring.pulse button{animation:p .3s}
-@keyframes p{50%{transform:scale(1.04)}}
-@media (prefers-reduced-motion:reduce){.ring.pulse button{animation:none}.ring .fg{transition:none}}
-.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:12px 0}
-.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:12px 18px;font:inherit;font-size:15px}
-.btn.main{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;min-width:200px}
-.btn.live{background:var(--warn);border-color:var(--warn);color:#fff}
-.status{text-align:center;font-size:14px;color:var(--muted);min-height:44px}
-.meter{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0}
-.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .08s}
-.heard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;min-height:48px;direction:rtl;font-size:20px;color:var(--muted)}
-label.opt{display:flex;align-items:center;gap:10px;font-size:15px;margin:10px 0}
-input[type=number],input[type=text]{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
-input[type=number]{width:84px}
-details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
-summary{cursor:pointer;color:var(--muted)}
-.test{display:flex;gap:8px;margin-top:10px}
-.test input{flex:1;min-width:0}
-.vfix{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:10px 0;font-size:15px;text-align:center}
-.update:not([hidden]){display:block}
-.update{width:100%;margin:0 0 10px;border:0;border-radius:12px;padding:12px;background:var(--accent);color:var(--accent-ink);font:600 15px system-ui}
-.ver{text-align:center;font-size:12px;color:var(--muted);margin-top:24px}
-:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+@media (max-height:640px){.ar{font-size:32px}.ar.m{font-size:26px}.counter{min-height:210px}}
 </style>
 </head>
 <body>
-<nav id="side" class="side" aria-label="Tasbeeh list">
-  <div class="sidehead">Tasbeehs<button id="closeSide" aria-label="Close list">✕</button></div>
-  <div id="list"></div>
-  <div class="cat"><button class="cathead" id="sideHist"><span class="arrow" aria-hidden="true">›</span><span>History &amp; streaks</span></button></div>
-</nav>
-<div id="scrim" class="scrim" hidden></div>
-<section id="hist" class="sheet" role="dialog" aria-modal="true" aria-labelledby="histTitle" hidden>
-  <div class="sheetin">
-    <header class="top">
-      <button id="histClose" class="menu" aria-label="Back to counter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <h1 id="histTitle">History</h1>
-    </header>
-    <div class="tiles">
-      <div class="tile hero"><div class="big" id="sCur">0</div><div class="lbl" id="sCurL">day streak</div><div class="sub" id="sCurNote"></div></div>
-      <div class="tile"><div class="mid" id="sBest">0</div><div class="lbl">best streak</div></div>
-      <div class="tile"><div class="mid" id="sWeek">0</div><div class="lbl">this week</div></div>
-      <div class="tile"><div class="mid" id="sAll">0</div><div class="lbl">all time</div></div>
+<div class="app" id="app">
+  <button id="update" class="update" hidden>A new version is ready. Tap to update.</button>
+  <header class="top">
+    <button class="icon" id="menuBtn" aria-label="All adhkar" aria-controls="drawer" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
+    <button class="where" id="where" aria-label="Open the list"><b id="catName">Tasbeeh</b><span id="pos"></span></button>
+    <button class="icon" id="histBtn" aria-label="History and streaks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></button>
+    <button class="icon" id="setBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+
+  <div id="envBanner" class="banner" role="alert" hidden></div>
+  <button id="suggest" class="suggest" hidden><i aria-hidden="true"></i><span></span></button>
+
+  <section class="text" id="text" aria-live="polite">
+    <p class="eyebrow" id="eyebrow"></p>
+    <div class="scroll" id="scroll" tabindex="0" aria-label="Text of the dhikr">
+      <p class="ar" id="ar" lang="ar"></p>
+      <p class="tr" id="tr"></p>
+      <p class="en" id="en"></p>
+      <p class="note" id="note" hidden></p>
     </div>
-    <h2>Routines finished, days in a row</h2>
-    <div id="rout"></div>
-    <div class="calhead"><button id="mPrev" class="menu" aria-label="Previous month">‹</button><h2 id="mName"></h2><button id="mNext" class="menu" aria-label="Next month">›</button></div>
-    <div class="cal" id="cal"></div>
-    <div class="legend" aria-hidden="true">Less <i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More<span>1–33 · 34–99 · 100–299 · 300+</span></div>
-    <div id="dayDetail" class="daydetail"></div>
+    <div class="textacts">
+      <button class="chip" id="say" aria-label="Hear it recited"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg><span>Listen</span></button>
+      <button class="chip" id="infoBtn" aria-label="Source and virtue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Source</span></button>
+    </div>
+  </section>
+
+  <section class="counter">
+    <button class="ring" id="ring" aria-label="Count one">
+      <svg id="beads" viewBox="0 0 300 300" aria-hidden="true"></svg>
+      <span class="mid"><span class="num" id="num">0</span><span class="of" id="of">of 33</span></span>
+    </button>
+    <button class="chip" id="targetBtn" style="margin-top:10px" aria-label="Change the target"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span>Target 33</span></button>
+    <p class="hint" id="hint">Tap the beads to count, or tap the microphone and recite.</p>
+  </section>
+
+  <div class="dock">
+    <div class="side">
+      <button class="round" id="undo" aria-label="Undo the last count"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+      <button class="round" id="reset" aria-label="Reset this count"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+    </div>
+    <button class="mic" id="mic" aria-label="Start counting by voice" aria-pressed="false">
+      <span class="lv" id="lv" aria-hidden="true"></span>
+      <svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      <svg class="stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>
+    </button>
+    <div class="side r">
+      <button class="round" id="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+      <button class="round" id="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+    </div>
+  </div>
+  <p class="status" id="status" role="status"></p>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<nav class="drawer" id="drawer" aria-label="Adhkar">
+  <div class="dhead"><h2>Adhkar</h2><button class="icon" id="closeDrawer" aria-label="Close the list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div id="list"></div>
+  <div class="dfoot">
+    <button class="dlink" id="addCustom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add your own dhikr</button>
+    <button class="dlink" id="dHist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>History and streaks</button>
+    <button class="dlink" id="dShare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/></svg>Share this app</button>
+  </div>
+</nav>
+
+<!-- Settings -->
+<section class="sheet" id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="setTitle">Settings</h1></header>
+    <h2>Counting by voice</h2>
+    <div class="card">
+      <div class="row"><div class="grow"><b>Train my voice</b><small id="voiceTxt"></small></div><button class="btn sm main" id="voiceBtn">Train</button></div>
+      <div class="row"><div class="grow"><b id="teachName">Teach it this dhikr</b><small id="teachTxt"></small></div><button class="btn sm" id="tuneBtn">Teach</button></div>
+      <div class="row"><div class="grow"><label for="sens"><b>Sensitivity</b></label><small id="sensTxt">Lower it if other sounds get counted; raise it if it misses you.</small><input type="range" id="sens" min="0" max="100" step="1"></div></div>
+      <div class="row"><div class="grow"><label for="gap"><b>Pause between recitations</b></label><small id="gapTxt"></small><input type="range" id="gap" min="200" max="700" step="10"></div></div>
+      <div class="row"><div class="grow"><b>Count recitations said without pauses</b><small>For adhkar that aren’t taught: a long stretch counts as several, by your usual length. Leave off if one slow recitation counts as more.</small></div><input type="checkbox" class="sw" id="split" aria-label="Count recitations said without pauses"></div>
+    </div>
+    <h2>Feedback</h2>
+    <div class="card">
+      <div class="row"><div class="grow"><b>Vibrate on each count</b><small id="vibNote">Android only. iPhones don’t allow web apps to vibrate.</small></div><input type="checkbox" class="sw" id="vib" aria-label="Vibrate on each count"></div>
+      <div class="row"><div class="grow"><b>Soft click on each count</b><small>A quiet bead sound, so you can count with your eyes closed.</small></div><input type="checkbox" class="sw" id="click" aria-label="Soft click on each count"></div>
+      <div class="row"><div class="grow"><b>Keep the screen on while listening</b><small>Phones stop the microphone when the screen locks.</small></div><input type="checkbox" class="sw" id="wake" aria-label="Keep the screen on while listening"></div>
+    </div>
+    <h2>Reading</h2>
+    <div class="card">
+      <div class="row"><div class="grow"><b>Show transliteration</b></div><input type="checkbox" class="sw" id="showTr" aria-label="Show transliteration"></div>
+      <div class="row"><div class="grow"><b>Show translation</b></div><input type="checkbox" class="sw" id="showEn" aria-label="Show translation"></div>
+      <div class="row"><div class="grow"><b>Move to the next one when done</b></div><input type="checkbox" class="sw" id="auto" aria-label="Move to the next one when done"></div>
+      <div class="row"><div class="grow"><b>Targets</b><small id="targetTxt"></small></div><button class="btn sm" id="targetSet">Change</button></div>
+    </div>
+    <h2>App</h2>
+    <div class="card">
+      <div class="row" id="installRow" hidden><div class="grow"><b>Add to home screen</b><small id="installTxt">Opens full screen and works offline.</small></div><button class="btn sm main" id="installBtn">Install</button></div>
+      <div class="row"><div class="grow"><b>Share with family and friends</b><small>Sends a link with instructions to open it in Chrome or Safari.</small></div><button class="btn sm" id="shareBtn">Share</button></div>
+      <div class="row"><div class="grow"><b>Check my setup</b><small>If the microphone won’t work, this finds out why.</small></div><button class="btn sm" id="diagBtn">Check</button></div>
+      <div class="row"><div class="grow"><b>Reset today’s counts</b><small>History is kept.</small></div><button class="btn sm" id="resetDay">Reset</button></div>
+    </div>
+    <p class="ver">Hisn al-Muslim recitations by Hamad Al-Duraihim; Qur’an by Mishary Alafasy (everyayah.com). Translations and references from Hisn al-Muslim; Qur’an translation Sahih International.<br>Version <span id="ver"></span></p>
   </div>
 </section>
-<main>
-<button id="update" class="update" hidden onclick="location.reload()">A new version is available. Tap to update.</button>
-<header class="top">
-  <button id="menuBtn" class="menu" aria-label="Open tasbeeh list" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-  <div><h1>Hands-free Tasbeeh</h1><div class="crumb" id="crumb"></div></div>
-  <button id="histBtn" class="menu" aria-label="History and streaks" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></button>
-</header>
-<div class="stage"><div class="arwrap"><button id="say" class="say" aria-label="Listen to how it is said"><svg class="play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/></svg><svg class="stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg></button><div class="ar" id="ar"></div></div><div class="tr" id="tr"></div><div class="tr en" id="en"></div></div>
 
-<div class="ring" id="ring">
-  <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="44"/><circle class="fg" id="fg" cx="50" cy="50" r="44"/></svg>
-  <button id="tap" aria-label="Tap to count"><span id="count">0</span><small id="of">of 33</small></button>
-</div>
-
-<div class="row"><button class="btn main" id="listen">Start listening</button></div>
-<div class="meter" aria-hidden="true"><i id="lvl"></i></div>
-<div class="status" id="status">First start downloads a ~40 MB speech model (once). After that it works offline.</div>
-<div class="heard" id="heard"></div>
-<div id="vfix" class="vfix" hidden role="status">
-  <div id="vfixMsg"></div>
-  <div class="row" style="margin:8px 0 0"><button class="btn" id="vfixNo">No thanks</button><button class="btn main" id="vfixYes" style="min-width:0"></button></div>
-</div>
-<div id="learn" hidden>
-  <div class="tr" style="text-align:center">Did it miss one? Say how many you recited and it will learn how it hears you.</div>
-  <div class="row">
-    <button class="btn" id="lm" aria-label="Fewer">−</button>
-    <strong id="ln" style="min-width:28px;text-align:center;align-self:center">1</strong>
-    <button class="btn" id="lp" aria-label="More">+</button>
-    <button class="btn main" id="learnBtn" style="min-width:0">Count it &amp; learn</button>
+<!-- Target -->
+<section class="sheet" id="tgt" role="dialog" aria-modal="true" aria-labelledby="tgtTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="tgtTitle">Target</h1></header>
+    <h2>Apply to</h2>
+    <div class="seg" id="tgtScope" role="radiogroup" aria-label="Apply to">
+      <button role="radio" data-scope="one" aria-checked="true">This dhikr</button><button role="radio" data-scope="cat" aria-checked="false">This list</button><button role="radio" data-scope="all" aria-checked="false">Everything</button>
+    </div>
+    <p class="muted" id="tgtFor" style="margin:8px 2px 0;font-size:14px"></p>
+    <h2>Count to</h2>
+    <div class="tchips" id="tgtChips"></div>
+    <form class="card" id="tgtForm" style="margin-top:12px"><div class="field"><label for="tgtN">Your own number</label><div style="display:flex;gap:8px"><input id="tgtN" type="number" min="1" max="100000" inputmode="numeric" placeholder="e.g. 313"><button class="btn main" type="submit">Set</button></div></div></form>
+    <button class="btn wide" id="tgtReset" style="margin-top:12px">Back to the usual targets</button>
   </div>
-</div>
-<div class="row"><button class="btn" id="clearAl">Forget learned spellings for this tasbeeh</button></div>
+</section>
 
-<details id="trainBox">
-  <summary>Train it on my voice</summary>
-  <div class="tr" id="vinfo" style="margin-top:8px"></div>
-  <div class="row"><button class="btn main" id="rec">Record samples</button></div>
-  <div class="tr">Say <b id="vname"></b> once, pause, and say it again. Each one becomes a sample. Aim for 10–20: some normal, some fast, some whispered. Tap Stop when done.</div>
-  <div class="row"><button class="btn" id="vplay">Play last</button><button class="btn" id="vdel">Delete last</button><button class="btn" id="vclr">Delete all</button></div>
-  <label class="opt"><input type="checkbox" id="vuse" checked> Count using my voice samples (fast, no model download) once this tasbeeh has 3 or more</label>
-  <label class="opt">Sensitivity <input type="range" id="vsens" min="0.7" max="1.5" step="0.05" value="1" style="flex:1;min-width:0"> <span id="vsv" style="min-width:44px">1.00×</span></label>
-  <div class="tr">Higher sensitivity counts more easily. Raise it if it misses you; lower it if it counts things you didn't say.</div>
-</details>
-
-<div class="row"><button class="btn" id="undo">Undo</button><button class="btn" id="reset">Reset</button><button class="btn" id="resetCat">Reset whole list</button></div>
-<label class="opt">Target <input type="number" id="target" min="1" max="1000" value="33"></label>
-<label class="opt"><input type="checkbox" id="seq" checked> Move to the next one in the list when the target is reached</label>
-<label class="opt"><input type="checkbox" id="vib" checked> Vibrate on each count</label>
-
-<button class="btn" id="delT" hidden>Delete this custom tasbeeh</button>
-
-<details>
-  <summary>Add your own tasbeeh</summary>
-  <label class="opt">Name <input type="text" id="cn" placeholder="e.g. My dua" style="flex:1;min-width:0"></label>
-  <label class="opt">Phrase <input type="text" id="cp" dir="rtl" placeholder="Arabic text" style="flex:1;min-width:0"></label>
-  <label class="opt">Target <input type="number" id="cc" min="1" max="1000" value="33"></label>
-  <div class="row">
-    <button class="btn" id="useHeard">Use what it last heard</button>
-    <button class="btn main" id="addT">Save tasbeeh</button>
+<!-- Source / virtue -->
+<section class="sheet" id="info" role="dialog" aria-modal="true" aria-labelledby="infoTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="infoTitle"></h1></header>
+    <div class="prose" id="infoBody"></div>
   </div>
-  <div class="tr">Tip: typing Arabic is slow, so recite the phrase once with Start listening on, then tap "Use what it last heard" and edit if needed.</div>
-</details>
+</section>
 
-<details>
-  <summary>Test without speaking</summary>
-  <div class="test"><input type="text" id="tin" placeholder="سبحان الله سبحان الله" dir="auto"><button class="btn" id="tgo">Send</button></div>
-</details>
-<div class="ver">Recitations: adhkar by Hamad Al-Duraihim (Hisn al-Muslim, hisnmuslim.com); Quran by Mishary Alafasy (everyayah.com).</div>
-<div class="ver">Version <span id="ver"></span></div>
-</main>
+<!-- History -->
+<section class="sheet" id="hist" role="dialog" aria-modal="true" aria-labelledby="histTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="histTitle">History</h1></header>
+    <div class="tiles" style="margin-top:12px">
+      <div class="tile hero"><div class="big" id="sCur">0</div><div class="lbl">day streak</div><div class="sub" id="sCurNote"></div></div>
+      <div class="tile"><div class="mid2" id="sBest">0</div><div class="lbl">best streak</div></div>
+      <div class="tile"><div class="mid2" id="sWeek">0</div><div class="lbl">last 7 days</div></div>
+      <div class="tile"><div class="mid2" id="sAll">0</div><div class="lbl">all time</div></div>
+    </div>
+    <h2>Routines finished, days in a row</h2>
+    <div class="card" id="rout"></div>
+    <div class="calhead"><button class="icon" id="mPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h2 id="mName"></h2><button class="icon" id="mNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div>
+    <div class="cal" id="cal"></div>
+    <div class="legend" aria-hidden="true">Less <i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More · 1–33 · 34–99 · 100–299 · 300+</div>
+    <div id="dayDetail"></div>
+  </div>
+</section>
 
-<script>
-// Bump on every deploy. The page compares it with the live copy whenever it opens or comes back to the foreground,
-// because iOS resumes home-screen apps from memory instead of reloading them.
-const APP_VERSION='11';
-if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{}));
-async function checkUpdate(){
-  try{
-    const html=await (await fetch('./index.html?check='+Date.now(),{cache:'no-store'})).text();
-    const v=(html.match(/APP_VERSION='([^']+)'/)||[])[1];
-    if(v&&v!==APP_VERSION)document.getElementById('update').hidden=false;
-    navigator.serviceWorker&&navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{});
-  }catch(e){}
-}
-addEventListener('load',checkUpdate);
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate();});
-</script>
-<script type="module">
-document.getElementById('ver').textContent=APP_VERSION;
-// The speech library is loaded only when Whisper is needed, so voice-sample counting works even if the CDN can't be reached.
-const TJS="https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
+<!-- Add your own -->
+<section class="sheet" id="custom" role="dialog" aria-modal="true" aria-labelledby="customTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="customTitle">Add your own dhikr</h1></header>
+    <p class="muted prose">Voice counting works by rhythm, so any phrase in any language can be counted. Only a name is needed.</p>
+    <form id="customForm" class="card">
+      <div class="field"><label for="cName">Name</label><input id="cName" required maxlength="80" placeholder="e.g. Ya Latif"></div>
+      <div class="field"><label for="cAr">Arabic text (optional)</label><textarea id="cAr" class="ar-in" dir="rtl" lang="ar" placeholder="يَا لَطِيفُ"></textarea></div>
+      <div class="field"><label for="cEn">Meaning or note (optional)</label><input id="cEn" maxlength="300"></div>
+      <div class="field"><label for="cN">Target</label><input id="cN" type="number" min="1" max="10000" value="33" inputmode="numeric"></div>
+      <div class="field"><button class="btn main wide" type="submit">Save</button></div>
+    </form>
+    <div id="customList"></div>
+  </div>
+</section>
 
-function norm(s){
-  return s.replace(/[\u064B-\u065F\u0670\u0640]/g,'')
-    .replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي')
-    .replace(/[^\u0621-\u064A]/g,'');
-}
-// Phrase library. `tr` is the phrase's name and also the key for learned spellings and voice samples,
-// so the same phrase shares them across categories. Phrases without `re` are matched with fuzzy().
-const P = {
-  sub:{ar:'سُبْحَانَ اللّٰه', tr:'SubhanAllah', en:'Glory be to Allah', au:'audio/sub.mp3', re:/سبحانالله(?!وبحمده)/g},
-  ham:{ar:'اَلْحَمْدُ لِلّٰه', tr:'Alhamdulillah', en:'All praise is for Allah', re:/الحمدلله/g},
-  akb:{ar:'اللّٰهُ أَكْبَر', tr:'Allahu Akbar', en:'Allah is the Greatest', au:'audio/akb.mp3', re:/اللهاكبر/g},
-  tah:{ar:'لَا إِلٰهَ إِلَّا اللّٰه', tr:'La ilaha illallah', en:'There is no god but Allah', au:'audio/tah.mp3', re:/لاالهالاالله/g},
-  ast:{ar:'أَسْتَغْفِرُ اللّٰه', tr:'Astaghfirullah', en:'I seek Allah’s forgiveness', re:/استغفرالله/g},
-  sbh:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِه', tr:'SubhanAllahi wa bihamdihi', en:'Glory be to Allah, and praise be to Him', au:'audio/sbh.mp3', re:/سبحانالله?وبحمده/g},
-  hwl:{ar:'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰه', tr:'La hawla wa la quwwata illa billah', en:'There is no power and no strength except with Allah', re:/لاحولولاقوهالابالله/g},
-  sal:{ar:'اللّٰهُمَّ صَلِّ عَلَى مُحَمَّد', tr:'Salawat on the Prophet ﷺ', en:'O Allah, send blessings upon Muhammad', re:/صلي?عليمحمد|صلياللهعليهوسلم/g},
-  sbz:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ سُبْحَانَ اللّٰهِ الْعَظِيم', tr:'SubhanAllahi wa bihamdihi, SubhanAllahil Azim', en:'Glory be to Allah and praise be to Him; glory be to Allah the Magnificent'},
-  atb:{ar:'أَسْتَغْفِرُ اللّٰهَ وَأَتُوبُ إِلَيْه', tr:'Astaghfirullaha wa atubu ilayh', en:'I seek Allah’s forgiveness and turn to Him in repentance', au:'audio/atb.mp3'},
-  whd:{ar:'لَا إِلٰهَ إِلَّا اللّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِير', tr:'La ilaha illallahu wahdahu', en:'There is no god but Allah alone, without partner. His is the dominion and His is the praise, and He is over all things capable', au:'audio/whd.mp3'},
-  hsb:{ar:'حَسْبُنَا اللّٰهُ وَنِعْمَ الْوَكِيل', tr:'Hasbunallahu wa ni’mal wakil', en:'Allah is sufficient for us, and He is the best disposer of affairs', au:'audio/hsb.mp3'},
-  yun:{ar:'لَا إِلٰهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِين', tr:'Dua of Yunus', en:'There is no god but You, glory be to You; I have been among the wrongdoers', au:'audio/yun.mp3'},
-  sic:{ar:'صَلَّى اللّٰهُ عَلَيْهِ وَسَلَّم', tr:'Sallallahu alayhi wa sallam', en:'May Allah send blessings and peace upon him'},
-  ibr:{ar:'اللّٰهُمَّ صَلِّ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا صَلَّيْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيدٌ، اللّٰهُمَّ بَارِكْ عَلَىٰ مُحَمَّدٍ وَعَلَىٰ آلِ مُحَمَّدٍ، كَمَا بَارَكْتَ عَلَىٰ إِبْرَاهِيمَ وَعَلَىٰ آلِ إِبْرَاهِيمَ، إِنَّكَ حَمِيدٌ مَجِيد', tr:'Salawat Ibrahimiyya', en:'O Allah, send blessings upon Muhammad and the family of Muhammad, as You sent blessings upon Ibrahim and the family of Ibrahim…', au:'audio/ibr.mp3'},
-  sys:{ar:'اللّٰهُمَّ أَنْتَ رَبِّي لَا إِلٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَىٰ عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ', tr:'Sayyid al-Istighfar', en:'The best way of seeking forgiveness: O Allah, You are my Lord, there is no god but You…', au:'audio/sys.mp3'},
-  rdt:{ar:'رَضِيتُ بِاللّٰهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا', tr:'Raditu billahi rabba', en:'I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet', au:'audio/rdt.mp3'},
-  bsm:{ar:'بِسْمِ اللّٰهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيم', tr:'Bismillahilladhi la yadurru', en:'In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing', au:'audio/bsm.mp3'},
-  afi:{ar:'اللّٰهُمَّ عَافِنِي فِي بَدَنِي، اللّٰهُمَّ عَافِنِي فِي سَمْعِي، اللّٰهُمَّ عَافِنِي فِي بَصَرِي، لَا إِلٰهَ إِلَّا أَنْتَ. اللّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْكُفْرِ وَالْفَقْرِ، وَأَعُوذُ بِكَ مِنْ عَذَابِ الْقَبْرِ، لَا إِلٰهَ إِلَّا أَنْتَ', tr:'Allahumma ‘afini fi badani', en:'O Allah, grant me well-being in my body, my hearing and my sight; there is no god but You. O Allah, I seek refuge in You from disbelief and poverty, and from the punishment of the grave; there is no god but You', au:'audio/afi.mp3'},
-  hsy:{ar:'حَسْبِيَ اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ، وَهُوَ رَبُّ الْعَرْشِ الْعَظِيم', tr:'Hasbiyallahu la ilaha illa huwa', en:'Allah is sufficient for me; there is no god but Him. In Him I trust, and He is Lord of the Mighty Throne', au:'audio/hsy.mp3'},
-  adk:{ar:'سُبْحَانَ اللّٰهِ وَبِحَمْدِهِ، عَدَدَ خَلْقِهِ، وَرِضَا نَفْسِهِ، وَزِنَةَ عَرْشِهِ، وَمِدَادَ كَلِمَاتِهِ', tr:'SubhanAllahi wa bihamdihi ‘adada khalqihi', en:'Glory be to Allah and praise be to Him, as many as His creation, as much as pleases Him, the weight of His Throne and the ink of His words', au:'audio/adk.mp3'},
-  kal:{ar:'أَعُوذُ بِكَلِمَاتِ اللّٰهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ', tr:'A’udhu bi kalimatillahit-tammat', en:'I seek refuge in the perfect words of Allah from the evil of what He has created', au:'audio/kal.mp3'},
-  sla:{ar:'اللّٰهُمَّ أَنْتَ السَّلَامُ وَمِنْكَ السَّلَامُ، تَبَارَكْتَ يَا ذَا الْجَلَالِ وَالْإِكْرَام', tr:'Allahumma antas-salam', en:'O Allah, You are Peace and from You is peace. Blessed are You, Possessor of majesty and honour'},
-  kur:{ar:'اللّٰهُ لَا إِلٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ، لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ، لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ، مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ، يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ، وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ، وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ، وَلَا يَئُودُهُ حِفْظُهُمَا، وَهُوَ الْعَلِيُّ الْعَظِيمُ', tr:'Ayat al-Kursi', en:'Al-Baqarah 2:255', q:[[2,255]]},
-  ikh:{ar:'قُلْ هُوَ اللّٰهُ أَحَدٌ، اللّٰهُ الصَّمَدُ، لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ', tr:'Surah al-Ikhlas', en:'Chapter 112', q:[[112,1],[112,2],[112,3],[112,4]]},
-  flq:{ar:'قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ، مِنْ شَرِّ مَا خَلَقَ، وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ، وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ، وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ', tr:'Surah al-Falaq', en:'Chapter 113', q:[[113,1],[113,2],[113,3],[113,4],[113,5]]},
-  nas:{ar:'قُلْ أَعُوذُ بِرَبِّ النَّاسِ، مَلِكِ النَّاسِ، إِلٰهِ النَّاسِ، مِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ، الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ، مِنَ الْجِنَّةِ وَالنَّاسِ', tr:'Surah an-Nas', en:'Chapter 114', q:[[114,1],[114,2],[114,3],[114,4],[114,5],[114,6]]}
-};
-// Categories, in the order they are usually recited. Counts follow Hisn al-Muslim where it gives one; others are common targets.
-const CATS = [
-  {id:'day', name:'Everyday', items:[['sub',33],['ham',33],['akb',34],['tah',100],['ast',100],['sbh',100],['hwl',100],['sal',100],['sbz',100],['atb',100],['whd',100],['hsb',100],['yun',100]]},
-  {id:'salah', name:'After prayer', note:'After each obligatory prayer.', items:[['ast',3],['sla',1],['sub',33],['ham',33],['akb',34],['kur',1]]},
-  {id:'am', name:'Morning', note:'From Fajr until sunrise. Selection from Hisn al-Muslim.', items:[['kur',1],['ikh',3],['flq',3],['nas',3],['sys',1],['rdt',3],['bsm',3],['afi',3],['hsy',7],['adk',3],['whd',10],['sbh',100],['atb',100]]},
-  {id:'pm', name:'Evening', note:'From Asr until Maghrib. Selection from Hisn al-Muslim.', items:[['kur',1],['ikh',3],['flq',3],['nas',3],['sys',1],['rdt',3],['bsm',3],['afi',3],['hsy',7],['kal',3],['whd',10],['sbh',100],['atb',100]]},
-  {id:'jumu', name:'Friday', note:'Send abundant salawat on the Prophet ﷺ on Friday, and read Surah al-Kahf.', items:[['sal',100],['sic',100],['ibr',10],['ast',100]]},
-  {id:'mine', name:'My tasbeehs', items:[]}
-];
-const T=[];
-for(const c of CATS)for(const [k,n] of c.items)T.push({...P[k],n,cat:c.id});
-try{JSON.parse(localStorage.getItem('customT')||'[]').forEach(c=>T.push({ar:c.ar,tr:c.name,n:c.n,custom:true,cat:'mine'}));}catch(e){}
-for(const t of T)t.key=norm(t.ar);
-function saveCustom(){try{localStorage.setItem('customT',JSON.stringify(T.filter(t=>t.custom).map(t=>({ar:t.ar,name:t.tr,n:t.n}))));}catch(e){}}
-let aliases={};try{aliases=JSON.parse(localStorage.getItem('aliases')||'{}');}catch(e){}
-function saveAliases(){try{localStorage.setItem('aliases',JSON.stringify(aliases));}catch(e){}}
-let lastHeard='';
-// Counts last for the day (so a morning routine survives closing the app); edited targets are kept.
-// Local calendar date, e.g. 2026-10-24
-const dk=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-let today=dk(new Date());
-const ek=t=>t.cat+'|'+t.tr;
-let history={};try{history=JSON.parse(localStorage.getItem('history')||'{}')||{};}catch(e){}
-let saved={day:today,c:{},n:{}};
-try{const s=JSON.parse(localStorage.getItem('progress')||'null');if(s){
-  saved.n=s.n||{};
-  let day=s.day;if(day&&!/^\d{4}-/.test(day))day=dk(new Date(day)); // older versions stored toDateString()
-  if(day===today)saved.c=s.c||{};
-  else if(/^\d{4}-\d\d-\d\d$/.test(day)&&s.c&&!history[day])history[day]={t:Object.values(s.c).reduce((a,b)=>a+b,0),c:s.c,d:[]};
-}}catch(e){}
-let cur=0, counts=T.map(t=>saved.c[ek(t)]||0), targets=T.map(t=>saved.n[ek(t)]||t.n);
-function saveProgress(){
-  const c={},n={};T.forEach((t,i)=>{if(counts[i])c[ek(t)]=counts[i];if(targets[i]!==t.n)n[ek(t)]=targets[i];});
-  try{localStorage.setItem('progress',JSON.stringify({day:today,c,n}));}catch(e){}
-  const tot=Object.values(c).reduce((a,b)=>a+b,0);
-  const d=CATS.filter(k=>T.some(t=>t.cat===k.id)&&T.every((t,i)=>t.cat!==k.id||counts[i]>=targets[i])).map(k=>k.id);
-  if(tot)history[today]={t:tot,c,d};else delete history[today];
-  const keys=Object.keys(history).sort();for(const k of keys.slice(0,Math.max(0,keys.length-400)))delete history[k];
-  try{localStorage.setItem('history',JSON.stringify(history));}catch(e){}
-}
-// Past midnight: start a fresh day (yesterday is already in history)
-function checkDay(){
-  const d=dk(new Date());if(d===today)return;
-  today=d;counts=counts.map(()=>0);draw();renderList();saveProgress();
-}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkDay();});
-const $=id=>document.getElementById(id);
-const C=2*Math.PI*44; $('fg').style.strokeDasharray=C;
+<!-- Tune to my voice -->
+<section class="sheet" id="tune" role="dialog" aria-modal="true" aria-labelledby="tuneTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button><h1 id="tuneTitle">Tune to my voice</h1></header>
+    <p class="bigmsg" id="tuneMsg"></p>
+    <p class="prose muted" id="tuneSub" style="text-align:center"></p>
+    <div class="meterbox" aria-hidden="true"><i id="tuneLv"></i><u id="tuneThr" hidden></u></div>
+    <div class="dots" id="tuneDots" aria-hidden="true"></div>
+    <div style="display:grid;gap:8px;margin-top:16px"><button class="btn main wide" id="tuneGo">Begin</button><button class="btn wide" id="tuneAlt" hidden>Not now</button></div>
+  </div>
+</section>
 
-const openCats=new Set();
-function renderList(){
-  const cat=T[cur].cat;
-  $('list').innerHTML='';
-  for(const c of CATS){
-    const idx=T.map((t,i)=>i).filter(i=>T[i].cat===c.id);
-    if(!idx.length)continue;
-    const doneN=idx.filter(i=>counts[i]>=targets[i]).length,open=openCats.has(c.id);
-    const sec=document.createElement('section');sec.className='cat';
-    const h=document.createElement('button');h.className='cathead';h.setAttribute('aria-expanded',open);
-    h.innerHTML='<span class="arrow" aria-hidden="true">›</span><span></span><span class="n"></span>';
-    h.children[1].textContent=c.name;h.children[2].textContent=doneN?doneN+' of '+idx.length+' done':idx.length+'';
-    h.onclick=()=>{open?openCats.delete(c.id):openCats.add(c.id);renderList();};
-    sec.appendChild(h);
-    if(open){
-      if(c.note){const n=document.createElement('div');n.className='catnote';n.textContent=c.note;sec.appendChild(n);}
-      const ul=document.createElement('ul');ul.className='items';
-      for(const i of idx){
-        const li=document.createElement('li'),b=document.createElement('button'),fin=counts[i]>=targets[i];
-        b.className='item'+(fin?' done':'');if(i===cur)b.setAttribute('aria-current','true');
-        b.innerHTML='<span></span><span class="p"></span>';b.children[0].textContent=T[i].tr;
-        b.children[1].textContent=fin?'✓':counts[i]?counts[i]+'/'+targets[i]:'×'+targets[i];
-        b.onclick=()=>{select(i);closeSide();};
-        li.appendChild(b);ul.appendChild(li);
-      }
-      sec.appendChild(ul);
-    }
-    $('list').appendChild(sec);
-  }
-  const c=CATS.find(c=>c.id===cat),idx=T.map((t,i)=>i).filter(i=>T[i].cat===cat);
-  $('crumb').textContent=c.name+' · '+(idx.indexOf(cur)+1)+' of '+idx.length;
-}
-const wide=matchMedia('(min-width:900px)');
-function openSide(){
-  openCats.add(T[cur].cat);renderList();
-  $('side').classList.add('open');$('scrim').hidden=false;$('menuBtn').setAttribute('aria-expanded','true');
-  $('list').querySelector('[aria-current]')?.focus({preventScroll:true});
-  $('list').querySelector('[aria-current]')?.scrollIntoView({block:'center'});
-}
-function closeSide(){
-  if(wide.matches||!$('side').classList.contains('open'))return;
-  $('side').classList.remove('open');$('scrim').hidden=true;$('menuBtn').setAttribute('aria-expanded','false');$('menuBtn').focus({preventScroll:true});
-}
-$('menuBtn').onclick=openSide;$('closeSide').onclick=closeSide;$('scrim').onclick=closeSide;
-addEventListener('keydown',e=>{if(e.key==='Escape')closeSide();});
-// swipe the panel to the left to close it
-let sx=null;$('side').addEventListener('touchstart',e=>{sx=e.touches[0].clientX;},{passive:true});
-$('side').addEventListener('touchend',e=>{if(sx!=null&&e.changedTouches[0].clientX-sx<-60)closeSide();sx=null;},{passive:true});
-function select(i){
-  if(mode==='enroll')stop();
-  if(saying)sayStop();
-  cur=i;const t=T[i];openCats.add(t.cat);
-  $('delT').hidden=!t.custom;$('target').value=targets[i];$('ar').textContent=t.ar;$('ar').classList.toggle('long',t.key.length>40);
-  $('say').hidden=!sayUrls(t);$('tr').textContent=t.tr;$('en').textContent=(t.en||'')+(t.key.length>60?' · Tap the counter for this one; it is too long to count by voice.':'');
-  try{localStorage.setItem('sel',ek(t));}catch(e){}
-  renderList();draw();vinfo();
-  if(mode==='count'){setEngine();$('status').textContent=listenMsg();if(engine==='whisper'&&!asr)loadModel().then(()=>{$('status').textContent=listenMsg();pump();}).catch(e=>$('status').textContent='Could not load model: '+e.message);}
-}
-function draw(){const c=counts[cur],n=targets[cur];$('count').textContent=c;$('of').textContent='of '+n;$('fg').style.strokeDashoffset=C*(1-Math.min(c/n,1));$('fg').style.opacity=c?1:0;}
-function add(k){
-  if(!k)return;
-  checkDay();
-  const was=counts[cur];counts[cur]=Math.max(0,counts[cur]+k);draw();saveProgress();
-  if(wide.matches||$('side').classList.contains('open'))renderList();
-  const r=$('ring');r.classList.remove('pulse');void r.offsetWidth;r.classList.add('pulse');
-  try{if($('vib').checked&&k>0&&navigator.vibrate)navigator.vibrate(30);}catch(e){}
-  if(counts[cur]>=targets[cur]&&k>0&&was<targets[cur])done();
-}
-function done(){
-  try{navigator.vibrate&&navigator.vibrate([120,60,120]);}catch(e){}
-  renderList();
-  if($('seq').checked){
-    const cat=T[cur].cat,next=T.findIndex((t,i)=>i>cur&&t.cat===cat&&counts[i]<targets[i]);
-    if(next>=0){$('status').textContent='Done. Moving to '+T[next].tr+'.';select(next);return;}
-    if(T.every(t=>t.cat!==cat||counts[T.indexOf(t)]>=targets[T.indexOf(t)])){$('status').textContent='All done for '+CATS.find(c=>c.id===cat).name+'. May Allah accept it.';return;}
-  }
-  $('status').textContent='Target reached.';
-}
-function lev(a,b){
-  const m=a.length,n=b.length;let p=Array.from({length:n+1},(_,j)=>j);
-  for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c;}
-  return p[n];
-}
-// Counts non-overlapping spots in the transcript that closely match the phrase (allows ~20% spelling slack)
-function fuzzy(text,key){
-  const s=norm(text),L=key.length,tol=Math.floor(L*0.2);let c=0,i=0;
-  while(i<s.length){
-    let hit=0;
-    for(const l of [L,L-1,L+1]){if(l<2||i+l>s.length)continue;if(lev(s.substr(i,l),key)<=tol){hit=l;break;}}
-    if(hit){c++;i+=hit;}else i++;
-  }
-  return c;
-}
-function baseMatches(text){const t=T[cur];if(!t.re)return fuzzy(text,t.key);const m=norm(text).match(t.re);return m?m.length:0;}
-// If the built-in pattern finds nothing, try spellings this user has taught it
-function matches(text){
-  const b=baseMatches(text);if(b)return b;
-  let best=0;for(const a of (aliases[T[cur].tr]||[]))best=Math.max(best,fuzzy(text,a));
-  return best;
-}
+<!-- Help & setup check -->
+<section class="sheet" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+  <div class="sheetin">
+    <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="helpTitle">Check my setup</h1></header>
+    <div class="prose" id="helpBody"></div>
+  </div>
+</section>
 
-// ---- Voice samples: the user's own recordings, matched against the mic with DTW ----
-// Features are 12 MFCCs (c0 dropped, so loudness and whispering volume don't matter) every 10 ms at 16 kHz.
-const SR=16000,FL=400,HOP=160,NFFT=512,NMEL=26,NCEP=12,MINS=3;
-const HAMM=Float32Array.from({length:FL},(_,i)=>0.54-0.46*Math.cos(2*Math.PI*i/(FL-1)));
-const MELS=(()=>{
-  const m=f=>2595*Math.log10(1+f/700),im=x=>700*(10**(x/2595)-1),lo=m(60),hi=m(7600),p=[];
-  for(let i=0;i<NMEL+2;i++)p.push(Math.floor((NFFT+1)*im(lo+(hi-lo)*i/(NMEL+1))/SR));
-  const fb=[];
-  for(let k=1;k<=NMEL;k++){const w=new Float32Array(NFFT/2+1);
-    for(let b=p[k-1];b<p[k];b++)w[b]=(b-p[k-1])/(p[k]-p[k-1]);
-    for(let b=p[k];b<=p[k+1];b++)w[b]=(p[k+1]-b)/((p[k+1]-p[k])||1);
-    fb.push(w);}
-  return fb;
-})();
-const DCT=Array.from({length:NCEP},(_,j)=>Float32Array.from({length:NMEL},(_,k)=>Math.cos(Math.PI*(j+1)*(k+0.5)/NMEL)));
-function fft(re,im){
-  const n=re.length;
-  for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
-  for(let len=2;len<=n;len<<=1){const a=-2*Math.PI/len,wr=Math.cos(a),wi=Math.sin(a),h=len>>1;
-    for(let i=0;i<n;i+=len){let cr=1,ci=0;
-      for(let j=0;j<h;j++){const k=i+j+h,tr=re[k]*cr-im[k]*ci,ti=re[k]*ci+im[k]*cr;
-        re[k]=re[i+j]-tr;im[k]=im[i+j]-ti;re[i+j]+=tr;im[i+j]+=ti;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t;}}}
-}
-const fre=new Float64Array(NFFT),fim=new Float64Array(NFFT),mel=new Float64Array(NMEL);
-function frame(x,o){
-  let s=0;fre.fill(0);fim.fill(0);
-  for(let i=0;i<FL;i++){const v=x[o+i];s+=v*v;fre[i]=(v-0.97*(o+i>0?x[o+i-1]:0))*HAMM[i];}
-  fft(fre,fim);
-  for(let k=0;k<NMEL;k++){const w=MELS[k];let e=0;for(let b=0;b<=NFFT/2;b++)if(w[b])e+=w[b]*(fre[b]*fre[b]+fim[b]*fim[b]);mel[k]=Math.log(e+1e-8);}
-  const c=new Float32Array(NCEP);
-  for(let j=0;j<NCEP;j++){let v=0;for(let k=0;k<NMEL;k++)v+=DCT[j][k]*mel[k];c[j]=v;}
-  return {c,r:Math.sqrt(s/FL)};
-}
-function feats(x){const out=[];for(let o=0;o+FL<=x.length;o+=HOP)out.push(frame(x,o));return out;}
-// Cut the quiet lead-in and tail off a recorded sample
-function trim(x){
-  const r=[];for(let o=0;o+FL<=x.length;o+=HOP){let s=0;for(let i=0;i<FL;i++)s+=x[o+i]*x[o+i];r.push(Math.sqrt(s/FL));}
-  const th=Math.max(Math.max(...r,0)*0.06,0.003);
-  let a=r.findIndex(v=>v>th),b=r.length-1;while(b>0&&r[b]<=th)b--;
-  if(a<0)return new Float32Array(0);
-  a=Math.max(0,a-3);b=Math.min(r.length-1,b+3);
-  return x.slice(a*HOP,b*HOP+FL);
-}
-function dist(a,b){let s=0;for(let i=0;i<NCEP;i++){const d=a[i]-b[i];s+=d*d;}return Math.sqrt(s);}
-function newPath(f){const M=f.length;return {f,D:new Float64Array(M+1).fill(Infinity),L:new Int32Array(M+1),S:new Int32Array(M+1)};}
-// One frame of open-start subsequence DTW (SPRING): finds the best match of the template ending at frame t.
-// Returns [average frame distance, start frame] or [Infinity] if the match is too squashed or stretched.
-function step(p,c,t){
-  const {f,D,L,S}=p,M=f.length;
-  let pD=0,pL=0,pS=t;
-  D[0]=0;L[0]=0;S[0]=t;
-  for(let i=1;i<=M;i++){
-    const oD=D[i],oL=L[i],oS=S[i];
-    let bD=pD,bL=pL,bS=pS;
-    if(oD<bD){bD=oD;bL=oL;bS=oS;}
-    if(D[i-1]<bD){bD=D[i-1];bL=L[i-1];bS=S[i-1];}
-    D[i]=bD+dist(c,f[i-1]);L[i]=bL+1;S[i]=bS;
-    pD=oD;pL=oL;pS=oS;
-  }
-  const dur=t-S[M]+1;
-  if(D[M]===Infinity||dur<0.5*M||dur>2*M)return [Infinity];
-  return [D[M]/L[M],S[M]];
-}
-function bestScore(tpl,seq){const p=newPath(tpl);let b=Infinity;for(let t=0;t<seq.length;t++){const s=step(p,seq[t].c,t)[0];if(s<b)b=s;}return b;}
+<!-- First run -->
+<section class="sheet" id="welcome" role="dialog" aria-modal="true" aria-labelledby="welTitle" hidden>
+  <div class="sheetin" style="max-width:480px">
+    <svg viewBox="0 0 120 120" width="96" height="96" style="display:block;margin:28px auto 8px" aria-hidden="true"><g id="welBeads"></g></svg>
+    <h1 id="welTitle" style="text-align:center;font-size:26px">Hands-free Tasbeeh</h1>
+    <div class="prose">
+      <p style="text-align:center" class="muted">Recite and it counts, with your phone face up beside you.</p>
+      <ol class="steps">
+        <li><b>Tap the microphone</b> and allow access. Everything stays on your phone; nothing is sent anywhere.</li>
+        <li><b>Teach it each dhikr once</b> by saying it 5 times. After that it only counts sounds like yours, so other voices and noise don’t count.</li>
+        <li><b>Recite at your normal pace.</b> Each recitation becomes a bead.</li>
+        <li><b>Tap the beads</b> if it misses one, or <b>Undo</b> if it counts extra. You can also just tap to count.</li>
+      </ol>
+      <div id="welEnv"></div>
+    </div>
+    <div style="display:grid;gap:8px;margin-top:18px">
+      <button class="btn main wide" id="welMic">Allow the microphone</button>
+      <button class="btn wide" id="welSkip">Start without it</button>
+    </div>
+  </div>
+</section>
 
-// Samples live in IndexedDB as 16 kHz Int16 audio, keyed by tasbeeh name, so they can be reused by a better model later.
-const samples={}; // name -> [{id,x:Float32Array,f:[frames]}]
-let cal={};       // name -> {thr,lo,hi,n}, recomputed when samples change
-let dbp=null;
-function idb(rw,fn){
-  dbp=dbp||new Promise((res,rej)=>{const r=indexedDB.open('tasbeeh',1);r.onupgradeneeded=()=>r.result.createObjectStore('samples',{keyPath:'id',autoIncrement:true});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
-  return dbp.then(d=>new Promise((res,rej)=>{const tx=d.transaction('samples',rw);const q=fn(tx.objectStore('samples'));tx.oncomplete=()=>res(q.result);tx.onerror=()=>rej(tx.error);}));
-}
-function addLocal(name,id,x){(samples[name]=samples[name]||[]).push({id,x,f:feats(x)});cal={};}
-async function loadSamples(){
-  try{
-    for(const r of await idb('readonly',s=>s.getAll())){const x=Float32Array.from(r.a,v=>v/32768);addLocal(r.t,r.id,x);}
-  }catch(e){$('status').textContent='Could not load voice samples: '+e.message;}
-  vinfo();
-}
-async function saveSample(name,x){
-  let id=null;
-  try{id=await idb('readwrite',s=>s.add({t:name,a:Int16Array.from(x,v=>Math.max(-32768,Math.min(32767,Math.round(v*32768)))),at:Date.now()}));}
-  catch(e){$('status').textContent='Sample kept for now but not saved: '+e.message;}
-  addLocal(name,id,x);
-  try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(e){}
-}
-async function dropSamples(name,list){
-  for(const s of list){try{if(s.id!=null)await idb('readwrite',st=>st.delete(s.id));}catch(e){}}
-  samples[name]=(samples[name]||[]).filter(s=>!list.includes(s));cal={};
-}
-const pct=(a,q)=>a[Math.min(a.length-1,Math.floor(q*(a.length-1)+0.5))];
-// Threshold from the samples themselves: how well each one matches the others (leave-one-out),
-// tightened if samples of other tasbeehs come too close.
-function calibrate(name){
-  if(cal[name])return cal[name];
-  const own=samples[name]||[];if(own.length<MINS)return null;
-  const pos=own.map((s,j)=>Math.min(...own.filter((_,k)=>k!==j).map(o=>bestScore(o.f.map(q=>q.c),s.f)))).sort((a,b)=>a-b);
-  let thr=pct(pos,0.9)*1.15;
-  const key=norm(T.find(t=>t.tr===name)?.ar||'');
-  const neg=[];
-  for(const nm of new Set(T.map(t=>t.tr))){if(nm===name)continue;const k=norm(T.find(t=>t.tr===nm).ar);if(key&&(k.includes(key)||key.includes(k)))continue;neg.push(...(samples[nm]||[]));}
-  let minNeg=Infinity;
-  for(const s of [...(samples[name+NEG]||[]),...neg.slice(-40)])for(const o of own)minNeg=Math.min(minNeg,bestScore(o.f.map(q=>q.c),s.f));
-  if(minNeg<thr)thr=Math.max(pct(pos,0.5)*1.05,minNeg*0.95);
-  return cal[name]={thr,lo:pos[0],hi:pos[pos.length-1],n:own.length,minNeg};
-}
-const NEG='#not'; // samples[name+NEG]: sounds the user said were wrongly counted as `name`
-function sens(){return parseFloat($('vsens').value)||1;}
-function vinfo(){
-  const name=T[cur].tr,n=(samples[name]||[]).length;
-  $('vname').textContent=name;
-  if(!n){$('vinfo').textContent='No voice samples for '+name+' yet.';return;}
-  if(n<MINS){$('vinfo').textContent=name+': '+n+' sample'+(n>1?'s':'')+'. Record at least '+MINS+' to count by voice.';return;}
-  const c=calibrate(name);
-  const nn=(samples[name+NEG]||[]).length;
-  $('vinfo').textContent=name+': '+n+' samples'+(nn?' and '+nn+' "not this" sound'+(nn>1?'s':''):'')+'. Your samples match each other at '+c.lo.toFixed(1)+'–'+c.hi.toFixed(1)+'; it counts anything under '+(c.thr*sens()).toFixed(1)+'.'+(c.minNeg<Infinity?' Closest wrong sound: '+c.minNeg.toFixed(1)+'.':'');
-}
+<div class="toast" id="toast" role="status" hidden></div>
 
-// Live detector: runs every template frame by frame, counts at the best (lowest) score once it stops improving.
-let det=null,vbuf=new Float32Array(0),vthr=0.012;
-// Last 10 s of 16 kHz audio, so a missed or wrong count can be saved as a sample. Frame t starts at sample t*HOP.
-const RING=SR*10;let ring=new Float32Array(RING),vpos=0;
-function clip(f0,f1){
-  const a=f0*HOP,b=Math.min(f1*HOP+FL,vpos);
-  if(a<vpos-RING||b<=a)return null;
-  const out=new Float32Array(b-a);for(let i=a;i<b;i++)out[i-a]=ring[i%RING];return out;
-}
-let lastMiss=null,lastHit=null; // {x: audio, at: time}
-function makeDet(name){
-  const c=calibrate(name);
-  return {tp:samples[name].map(s=>newPath(s.f.map(q=>q.c))),thr:c.thr*sens(),t:0,cand:null,last:-1,voiced:new Uint8Array(1024),act:false,sil:0,min:Infinity,fired:false};
-}
-function voicedFrac(a,b){const d=det;a=Math.max(a,b-1023);let v=0;for(let t=a;t<=b;t++)v+=d.voiced[t&1023];return v/(b-a+1);}
-function detFrame(fr){
-  const d=det,t=d.t++,on=fr.r>vthr;
-  d.voiced[t&1023]=on?1:0;
-  let best=Infinity,bs=0;
-  for(const p of d.tp){const [s,st]=step(p,fr.c,t);if(s<best){best=s;bs=st;}}
-  if(on){if(!d.act)d.run=t;d.act=true;d.sil=0;}else d.sil++;
-  if(d.act&&best<d.min)d.min=best;
-  if(best<d.thr&&bs>d.last&&voicedFrac(bs,t)>=0.5&&(!d.cand||best<d.cand.s))d.cand={s:best,t,st:bs};
-  if(d.cand&&t-d.cand.t>=12){
-    const c=d.cand;d.cand=null;d.last=c.t;d.fired=true;
-    for(const p of d.tp)for(let i=1;i<p.D.length;i++)if(p.S[i]<=c.t)p.D[i]=Infinity;
-    lastHit={x:clip(c.st,c.t),at:Date.now()};lastMiss=null;hideFix();
-    add(1);$('status').textContent='Counted by voice (match '+c.s.toFixed(1)+', limit '+d.thr.toFixed(1)+').';
-  }
-  if(d.act&&d.sil>=50){
-    if(!d.fired){
-      lastMiss={x:clip(Math.max(0,d.run-10),t-50),at:Date.now()};
-      if(d.min<d.thr*1.5)$('status').textContent='Heard something close but not counted (match '+d.min.toFixed(1)+', limit '+d.thr.toFixed(1)+'). If that was it, tap the counter to count it and teach it.';
-    }
-    d.act=false;d.fired=false;d.min=Infinity;
-  }
-}
-function feedVoice(x){
-  const b=new Float32Array(vbuf.length+x.length);b.set(vbuf);b.set(x,vbuf.length);
-  for(let i=0;i<x.length;i++)ring[(vpos+i)%RING]=x[i];vpos+=x.length;
-  let o=0;for(;o+FL<=b.length;o+=HOP)detFrame(frame(b,o));
-  vbuf=b.slice(o);
-}
-let enrollName='',enrollN=0;
-async function onEnrollSegment(x){
-  x=trim(x);const dur=x.length/SR;
-  if(dur<0.25){$('status').textContent='Too short, try again.';return;}
-  if(dur>4){$('status').textContent='That was too long. Say the phrase once, then pause.';return;}
-  await saveSample(enrollName,x);enrollN++;
-  $('status').textContent='Got sample '+(samples[enrollName]||[]).length+' ('+dur.toFixed(1)+' s). Say it again, or tap Stop.';
-}
-
-// ---- On-device speech: Whisper (tiny) running in the page ----
-let asr=null, listening=false, ctx=null, stream=null, proc=null, wake=null, mode='off', engine='whisper';
-function engineFor(i){return $('vuse').checked&&(samples[T[i].tr]||[]).length>=MINS?'voice':'whisper';}
-function setEngine(){engine=engineFor(cur);vbuf=new Float32Array(0);vpos=0;lastMiss=lastHit=null;hideFix();det=engine==='voice'?makeDet(T[cur].tr):null;}
-function listenMsg(){
-  return engine==='voice'?'Listening with your voice samples. Recite '+T[cur].tr+'. Keep the screen on.'
-    :'Listening. Recite '+T[cur].tr+', pausing briefly between rounds. Keep the screen on.';
-}
-async function loadModel(){
-  if(asr)return;
-  $('status').textContent='Loading speech model…';
-  const {pipeline,env}=await import(TJS);
-  env.allowLocalModels=false;
-  asr=await pipeline('automatic-speech-recognition','Xenova/whisper-tiny',{
-    dtype:'q8',
-    progress_callback:p=>{if(p.status==='progress'&&p.progress!=null)$('status').textContent='Downloading model… '+Math.round(p.progress)+'%';}
-  });
-}
-function resample(buf,from,to){
-  if(from===to)return buf;
-  const r=from/to,n=Math.floor(buf.length/r),out=new Float32Array(n);
-  for(let i=0;i<n;i++){const x=i*r,i0=Math.floor(x),i1=Math.min(i0+1,buf.length-1);out[i]=buf[i0]+(buf[i1]-buf[i0])*(x-i0);}
-  return out;
-}
-// Simple voice-activity segmenter: collects one utterance, then transcribes it once.
-const PAUSE=0.45; // seconds of quiet before a phrase is sent to the model (was 0.7). Raise if phrases get cut in half.
-let seg=[],segLen=0,speaking=false,silentFor=0,noise=0.005,pre=[];
-const queue=[];let busy=false;
-function onAudio(e){
-  const d=new Float32Array(e.inputBuffer.getChannelData(0));
-  const sr=ctx.sampleRate,dur=d.length/sr;
-  let s=0;for(let i=0;i<d.length;i++)s+=d[i]*d[i];
-  const rms=Math.sqrt(s/d.length);
-  $('lvl').style.width=Math.min(100,rms*600)+'%';
-  if(saying||Date.now()<muteUntil){speaking=false;seg=[];pre=[];return;} // don't count or record the app's own voice
-  // whispers are quiet, so voice modes use a lower floor than Whisper does
-  const thr=Math.max(mode==='count'&&engine==='whisper'?0.012:0.006,noise*3);
-  if(rms<=thr)noise=noise*0.95+rms*0.05;
-  if(mode==='count'&&engine==='voice'){vthr=thr;feedVoice(resample(d,sr,SR));return;}
-  if(rms>thr){
-    if(!speaking){speaking=true;seg=pre.slice();segLen=seg.reduce((a,b)=>a+b.length,0)/sr;}
-    seg.push(d);segLen+=dur;silentFor=0;
-  }else{
-    if(speaking){seg.push(d);segLen+=dur;silentFor+=dur;}
-    else{pre.push(d);if(pre.length>3)pre.shift();}
-  }
-  if(speaking&&(silentFor>=PAUSE||segLen>6)){
-    const all=new Float32Array(seg.reduce((a,b)=>a+b.length,0));let o=0;for(const b of seg){all.set(b,o);o+=b.length;}
-    speaking=false;seg=[];segLen=0;silentFor=0;pre=[];
-    if(mode==='enroll'){if(all.length/sr>0.25)onEnrollSegment(resample(all,sr,SR));}
-    else if(all.length/sr>0.4){queue.push(resample(all,sr,SR));pump();}
-  }
-}
-async function pump(){
-  if(busy||!asr)return;busy=true;
-  while(queue.length){
-    const a=queue.shift();
-    try{
-      const out=await asr(a,{language:'arabic',task:'transcribe'});
-      const text=(out.text||'').trim();
-      $('heard').textContent=text;lastHeard=text;$('learn').hidden=!text;
-      const m=matches(text);
-      if(m){add(m);} 
-    }catch(e){$('status').textContent='Recognition error: '+e.message;}
-  }
-  busy=false;
-}
-async function openMic(){
-  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true}});
-  ctx=new (window.AudioContext||window.webkitAudioContext)();
-  await ctx.resume();
-  const src=ctx.createMediaStreamSource(stream);
-  proc=ctx.createScriptProcessor(4096,1,1);
-  proc.onaudioprocess=onAudio;
-  src.connect(proc);proc.connect(ctx.destination);
-  try{wake=await navigator.wakeLock.request('screen');}catch(e){}
-  listening=true;
-}
-function micError(e){
-  $('status').textContent=(e.name==='NotAllowedError'?'Microphone permission denied. On iPhone: Settings → Safari → Microphone, or reload and tap Allow.':'Could not start: '+e.message);
-}
-async function start(){
-  $('listen').disabled=true;$('rec').disabled=true;
-  try{
-    setEngine();
-    if(engine==='whisper')await loadModel();
-    await openMic();mode='count';
-    $('listen').textContent='Stop listening';$('listen').classList.add('live');
-    $('status').textContent=listenMsg();
-  }catch(e){micError(e);$('rec').disabled=false;}
-  $('listen').disabled=false;
-}
-async function startEnroll(){
-  $('listen').disabled=true;$('rec').disabled=true;
-  try{
-    enrollName=T[cur].tr;enrollN=0;
-    await openMic();mode='enroll';
-    $('rec').textContent='Stop recording';$('rec').classList.add('live');
-    $('status').textContent='Recording samples for '+enrollName+'. Say it once, then pause.';
-  }catch(e){micError(e);$('listen').disabled=false;}
-  $('rec').disabled=false;
-}
-function stop(msg){
-  const was=mode;listening=false;mode='off';
-  try{proc&&proc.disconnect();ctx&&ctx.close();stream&&stream.getTracks().forEach(t=>t.stop());wake&&wake.release();}catch(e){}
-  speaking=false;seg=[];pre=[];det=null;vbuf=new Float32Array(0);$('lvl').style.width='0';
-  $('listen').textContent='Start listening';$('listen').classList.remove('live');$('listen').disabled=false;
-  $('rec').textContent='Record samples';$('rec').classList.remove('live');$('rec').disabled=false;
-  $('status').textContent=typeof msg==='string'?msg:was==='enroll'?'Saved '+enrollN+' new sample'+(enrollN===1?'':'s')+'.':'Stopped.';
-  if(was==='enroll')vinfo();
-}
-$('listen').onclick=()=>listening?stop():start();
-$('rec').onclick=()=>listening?stop():startEnroll();
-$('vplay').onclick=()=>{
-  const s=(samples[T[cur].tr]||[]).at(-1);if(!s||listening)return;
-  const c=new (window.AudioContext||window.webkitAudioContext)(),b=c.createBuffer(1,s.x.length,SR);
-  b.getChannelData(0).set(s.x);const src=c.createBufferSource();src.buffer=b;src.connect(c.destination);src.onended=()=>c.close();src.start();
-};
-$('vdel').onclick=async()=>{const name=T[cur].tr,s=(samples[name]||[]).at(-1);if(!s)return;await dropSamples(name,[s]);vinfo();$('status').textContent='Deleted the last sample.';};
-$('vclr').onclick=async()=>{const name=T[cur].tr;if(!(samples[name]||[]).length||!confirm('Delete all voice samples for '+name+'?'))return;await dropSamples(name,samples[name].slice());if(samples[name+NEG])await dropSamples(name+NEG,samples[name+NEG].slice());vinfo();$('status').textContent='Deleted all voice samples for '+name+'.';};
-$('vuse').onchange=()=>{try{localStorage.setItem('vuse',$('vuse').checked?'1':'0');}catch(e){}};
-$('vsens').oninput=()=>{$('vsv').textContent=sens().toFixed(2)+'×';try{localStorage.setItem('vsens',$('vsens').value);}catch(e){}if(det)det.thr=calibrate(T[cur].tr).thr*sens();vinfo();};
-try{if(localStorage.getItem('vuse')==='0')$('vuse').checked=false;const v=localStorage.getItem('vsens');if(v){$('vsens').value=v;$('vsv').textContent=sens().toFixed(2)+'×';}}catch(e){}
-// ---- Pronunciation ----
-// Quran passages (q: [[surah, ayah], ...]) play Mishary Alafasy's recitation from everyayah.com (needs a connection).
-// Other adhkar with a recording (au) play Hamad Al-Duraihim's Hisn al-Muslim recording from audio/ in this repo.
-// Phrases without either have no speaker button. Listening is paused while audio plays.
-let saying=false,muteUntil=0;const sayAudio=new Audio();
-const pad3=n=>String(n).padStart(3,'0');
-function sayIcon(){$('say').classList.toggle('on',saying);$('say').setAttribute('aria-label',saying?'Stop':'Listen to how it is said');}
-function sayStop(){
-  saying=false;muteUntil=Date.now()+400;sayIcon();
-  sayAudio.onended=sayAudio.onerror=null;sayAudio.pause();
-  if(mode==='count')setEngine(); // start matching fresh after the gap
-}
-function playList(urls,i){
-  if(!saying)return;
-  if(i>=urls.length)return sayStop();
-  sayAudio.onended=()=>playList(urls,i+1);
-  sayAudio.onerror=()=>{if(!saying)return;$('status').textContent='Could not load the recording. Check your connection and try again.';sayStop();};
-  sayAudio.src=urls[i];
-  sayAudio.play().catch(()=>sayAudio.onerror&&sayAudio.onerror());
-}
-function sayUrls(t){
-  if(t.au)return [t.au];
-  if(t.q)return t.q.map(([su,ay])=>'https://everyayah.com/data/Alafasy_128kbps/'+pad3(su)+pad3(ay)+'.mp3');
-  return null;
-}
-$('say').onclick=()=>{
-  if(saying)return sayStop();
-  const u=sayUrls(T[cur]);if(!u)return;
-  saying=true;sayIcon();playList(u,0);
-};
-
-// Corrections while counting by voice: offer to learn from them (never automatic, so a cough isn't learned)
-let fixTimer=null,fixSave=null;
-function hideFix(){$('vfix').hidden=true;clearTimeout(fixTimer);fixSave=null;}
-function offerFix(msg,btn,save){
-  $('vfixMsg').textContent=msg;$('vfixYes').textContent=btn;fixSave=save;$('vfix').hidden=false;
-  clearTimeout(fixTimer);fixTimer=setTimeout(hideFix,20000);
-}
-function usable(c){if(!c||!c.x||Date.now()-c.at>15000)return null;const x=trim(c.x),d=x.length/SR;return d>=0.25&&d<=4?x:null;}
-$('tap').onclick=()=>{
-  add(1);
-  if(mode!=='count'||engine!=='voice')return;
-  // also catch a phrase that is still trailing off (no 0.5 s pause yet)
-  if(det&&det.act&&!det.fired&&!usable(lastMiss))lastMiss={x:clip(Math.max(0,det.run-10),det.t-1),at:Date.now()};
-  const x=usable(lastMiss);if(!x)return;
-  const name=T[cur].tr;
-  offerFix('Missed one? Save the last sound ('+(x.length/SR).toFixed(1)+' s) as a sample of '+name+' so it catches it next time.','Save sample',async()=>{
-    lastMiss=null;await saveSample(name,x);if(mode==='count')setEngine();vinfo();
-    $('status').textContent='Saved. '+name+' now has '+samples[name].length+' samples.';
-  });
-};
-$('undo').onclick=()=>{
-  add(-1);
-  if(mode!=='count'||engine!=='voice')return;
-  const x=usable(lastHit);if(!x)return;
-  const name=T[cur].tr;
-  offerFix('Counted by mistake? Teach it that the last sound was not '+name+'.','Teach it',async()=>{
-    lastHit=null;await saveSample(name+NEG,x);if(mode==='count')setEngine();vinfo();
-    $('status').textContent='Got it. It will be stricter about sounds like that.';
-  });
-};
-$('vfixYes').onclick=async()=>{const f=fixSave;hideFix();if(f)await f();};
-$('vfixNo').onclick=hideFix;
-$('reset').onclick=()=>{counts[cur]=0;draw();saveProgress();renderList();$('status').textContent='Reset.';};
-$('resetCat').onclick=()=>{const cat=T[cur].cat;T.forEach((t,i)=>{if(t.cat===cat)counts[i]=0;});draw();saveProgress();renderList();$('status').textContent='Reset all of '+CATS.find(c=>c.id===cat).name+'.';};
-$('target').onchange=e=>{targets[cur]=Math.max(1,parseInt(e.target.value)||1);draw();saveProgress();renderList();};
-$('tgo').onclick=()=>{const m=matches($('tin').value);$('heard').textContent=$('tin').value;add(m);$('status').textContent=m?('Heard '+m+'x'):'No match for '+T[cur].tr;};
-let learnN=1;
-$('lm').onclick=()=>{learnN=Math.max(1,learnN-1);$('ln').textContent=learnN;};
-$('lp').onclick=()=>{learnN=Math.min(20,learnN+1);$('ln').textContent=learnN;};
-$('learnBtn').onclick=()=>{
-  const k=norm(lastHeard);
-  // one recitation is roughly 1/n of what it heard, so keep the first slice as the learned spelling
-  const a=k.slice(0,Math.round(k.length/learnN));
-  if(a.length<5){$('status').textContent='That was too short to learn from. Try again.';return;}
-  const key=T[cur].tr;aliases[key]=aliases[key]||[];
-  if(!aliases[key].includes(a)){aliases[key].push(a);if(aliases[key].length>20)aliases[key].shift();}
-  saveAliases();add(learnN);
-  $('learn').hidden=true;lastHeard='';learnN=1;$('ln').textContent=1;
-  $('status').textContent='Counted and learned. It now knows '+aliases[key].length+' way(s) you say '+key+'.';
-};
-$('clearAl').onclick=()=>{delete aliases[T[cur].tr];saveAliases();$('status').textContent='Cleared learned spellings for '+T[cur].tr+'.';};
-$('useHeard').onclick=()=>{
-  if(lastHeard){$('cp').value=lastHeard;$('status').textContent='Phrase filled in. Edit it if it looks wrong, then save.';}
-  else $('status').textContent='Start listening and recite the phrase first.';
-};
-$('addT').onclick=()=>{
-  const ar=$('cp').value.trim(),name=$('cn').value.trim(),n=Math.max(1,parseInt($('cc').value)||33);
-  if(norm(ar).length<3){$('status').textContent='Enter the Arabic phrase first (at least a few letters).';return;}
-  T.push({ar,tr:name||ar,n,custom:true,cat:'mine',key:norm(ar)});counts.push(0);targets.push(n);saveCustom();
-  $('cn').value='';$('cp').value='';select(T.length-1);$('status').textContent='Saved. It will be here next time too.';
-};
-$('delT').onclick=()=>{
-  if(!T[cur].custom)return;
-  for(const k of [T[cur].tr,T[cur].tr+NEG])if(samples[k])dropSamples(k,samples[k].slice());
-  T.splice(cur,1);counts.splice(cur,1);targets.splice(cur,1);saveCustom();saveProgress();
-  const m=T.findIndex(t=>t.cat==='mine');select(m>=0?m:0);$('status').textContent='Deleted.';
-};
-// ---- History & streaks ----
-// localStorage `history`: {"YYYY-MM-DD": {t: total count, c: {cat|tr: count}, d: [categories fully completed]}}
-const ROUTINES=['am','pm','salah'];
-function histOpen(){
-  checkDay();renderHist();
-  $('hist').hidden=false;document.body.style.overflow='hidden';$('histClose').focus({preventScroll:true});
-}
-function histClose(){$('hist').hidden=true;document.body.style.overflow='';$('histBtn').focus({preventScroll:true});}
-$('histBtn').onclick=histOpen;$('histClose').onclick=histClose;
-$('sideHist').onclick=()=>{closeSide();histOpen();};
-addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('hist').hidden)histClose();});
-const addDays=(k,n)=>{const [y,m,d]=k.split('-').map(Number);return dk(new Date(y,m-1,d+n));};
-// Runs of consecutive days satisfying ok(day). The current run may start yesterday, so an unfinished today doesn't break it.
-function streaks(ok){
-  let best=0,run=0,prev=null;
-  for(const k of Object.keys(history).sort()){
-    if(!ok(history[k])){continue;}
-    run=prev&&addDays(prev,1)===k?run+1:1;prev=k;best=Math.max(best,run);
-  }
-  let cur=0,k=ok(history[today]||{})?today:addDays(today,-1);
-  while(history[k]&&ok(history[k])){cur++;k=addDays(k,-1);}
-  return {cur,best,todayDone:ok(history[today]||{})};
-}
-let histMonth=null,histSel=null;
-const fmt=n=>n.toLocaleString();
-const level=t=>!t?0:t<34?1:t<100?2:t<300?3:4;
-function renderHist(){
-  const all=streaks(h=>h.t>0);
-  $('sCur').textContent=all.cur;$('sCurL').textContent=all.cur===1?'day streak':'day streak';
-  $('sCurNote').textContent=all.todayDone?'Today counted. Keep it up.':all.cur?'Do some dhikr today to keep it going.':'Start today.';
-  $('sBest').textContent=all.best;
-  let wk=0;for(let i=0;i<7;i++)wk+=(history[addDays(today,-i)]||{}).t||0;
-  $('sWeek').textContent=fmt(wk);
-  $('sAll').textContent=fmt(Object.values(history).reduce((a,h)=>a+(h.t||0),0));
-  $('rout').innerHTML='';
-  for(const id of ROUTINES){
-    const s=streaks(h=>(h.d||[]).includes(id)),c=CATS.find(c=>c.id===id);
-    const row=document.createElement('div');row.className='routrow';
-    row.innerHTML='<span class="rn"></span><span class="rv"></span>';
-    row.children[0].textContent=(s.todayDone?'✓ ':'')+c.name;
-    row.children[1].textContent=s.cur+(s.cur===1?' day':' days')+(s.best>s.cur?' · best '+s.best:'');
-    $('rout').appendChild(row);
-  }
-  if(!histMonth)histMonth=today.slice(0,7);
-  if(!histSel)histSel=today;
-  const [y,m]=histMonth.split('-').map(Number),first=new Date(y,m-1,1),days=new Date(y,m,0).getDate();
-  $('mName').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});
-  $('mNext').disabled=histMonth>=today.slice(0,7);
-  const cal=$('cal');cal.innerHTML='';
-  for(let i=0;i<7;i++){const d=document.createElement('div');d.className='wd';d.setAttribute('aria-hidden','true');d.textContent=new Date(2023,0,1+i).toLocaleDateString(undefined,{weekday:'narrow'});cal.appendChild(d);}
-  for(let i=0;i<first.getDay();i++)cal.appendChild(document.createElement('div'));
-  for(let d=1;d<=days;d++){
-    const k=dk(new Date(y,m-1,d)),h=history[k],t=h?h.t:0,b=document.createElement('button');
-    b.className='day l'+level(t)+(k===today?' today':'')+(k===histSel?' sel':'');b.textContent=d;
-    b.disabled=k>today;
-    b.setAttribute('aria-label',new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})+': '+(t?fmt(t)+' dhikr':'none'));
-    b.title=t?fmt(t)+' dhikr':'';
-    b.onclick=()=>{histSel=k;renderHist();};
-    cal.appendChild(b);
-  }
-  // breakdown of the selected day
-  const h=history[histSel],dd=$('dayDetail');dd.innerHTML='';
-  const [sy,sm,sd]=histSel.split('-').map(Number);
-  const head=document.createElement('h3');head.textContent=new Date(sy,sm-1,sd).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})+(h?' · '+fmt(h.t)+' total':'');dd.appendChild(head);
-  if(!h){const p=document.createElement('p');p.className='tr';p.textContent=histSel===today?'Nothing yet today.':'No dhikr recorded this day.';dd.appendChild(p);return;}
-  if(h.d&&h.d.length){const p=document.createElement('p');p.className='donecats';p.textContent='Completed: '+h.d.map(id=>(CATS.find(c=>c.id===id)||{name:id}).name).join(', ');dd.appendChild(p);}
-  const by={};for(const [key,n] of Object.entries(h.c||{})){const tr=key.slice(key.indexOf('|')+1);by[tr]=(by[tr]||0)+n;}
-  const ul=document.createElement('ul');ul.className='daylist';
-  for(const [tr,n] of Object.entries(by).sort((a,b)=>b[1]-a[1])){const li=document.createElement('li');li.innerHTML='<span></span><span></span>';li.children[0].textContent=tr;li.children[1].textContent=fmt(n);ul.appendChild(li);}
-  dd.appendChild(ul);
-}
-$('mPrev').onclick=()=>{histMonth=addDays(histMonth+'-01',-1).slice(0,7);renderHist();};
-$('mNext').onclick=()=>{const [y,m]=histMonth.split('-').map(Number);histMonth=dk(new Date(y,m,1)).slice(0,7);renderHist();};
-let sel=null;try{sel=localStorage.getItem('sel');}catch(e){}
-select(Math.max(0,T.findIndex(t=>ek(t)===sel)));
-loadSamples();
-</script>
+<script src="adhkar.js"></script>
+<script src="voice.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

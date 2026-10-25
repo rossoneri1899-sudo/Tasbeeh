@@ -1,13 +1,17 @@
-// Offline support for the beta. App files are network-first (so updates show up when online) with a cache fallback.
+// Offline support. App files are network-first (so updates show up when online) with a cache fallback.
 // Fonts are cached as they load. Recordings are left to the browser: media players need range (206) responses.
-const CACHE = 'tasbeeh-beta-3';
-const CORE = ['./', './index.html', './app.js', './voice.js', './adhkar.js', './manifest.webmanifest', '../icon-180.png', '../icon-192.png', '../icon-512.png'];
+// The same file serves the live app (site root) and the test channel (beta/), each with its own cache.
+const CHANNEL = new URL(self.registration.scope).pathname.includes('/beta/') ? 'beta' : 'app';
+const CACHE = 'tasbeeh-' + CHANNEL + '-4';
+const CORE = ['./', './index.html', './app.js', './voice.js', './adhkar.js', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('tasbeeh-beta-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  // drop this channel's old caches; the live app also removes the old app's cache and its 40 MB Whisper model
+  const stale = k => k !== CACHE && (k.startsWith('tasbeeh-' + CHANNEL + '-') || CHANNEL === 'app' && (/^tasbeeh-v\d+$/.test(k) || k === 'transformers-cache'));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(stale).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
