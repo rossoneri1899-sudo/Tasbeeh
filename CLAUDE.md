@@ -13,7 +13,7 @@ A web app that counts tasbeeh and adhkar by listening to the user recite. Hosted
 
 - **Two channels.** `beta/` (`…/Tasbeeh/beta/`) is where changes go first. The live app is the same files copied to the repo root. Work in `beta/`, test, push; when the owner is happy, run `tools/publish.ps1` (copies `beta/` files to the root; the two manifests stay separate so the beta installs as "Tasbeeh β"), commit and push.
 - **Bump `APP_VERSION` in `beta/app.js` on every release.** The page fetches `app.js` (no-store) on launch and whenever it returns to the foreground, and shows "A new version is ready" if the number differs, because iOS resumes home-screen apps from memory. The version is shown at the bottom of Settings. Live version numbers continue from the old app (11 → 12); the beta used b1–b4 before going live.
-- `index.html` also carries `<!-- APP_VERSION='12' -->` so users still on the old single-file app (which looked for `APP_VERSION='…'` in index.html) get the update banner. Keep it in step with `app.js` for a while.
+- `index.html` also carries `<!-- APP_VERSION='13' -->` so users still on the old single-file app (which looked for `APP_VERSION='…'` in index.html) get the update banner. Keep it in step with `app.js` for a while.
 - Bump the version in `CACHE` in `beta/sw.js` when caching rules change. The service worker names its cache by channel (`tasbeeh-app-N` / `tasbeeh-beta-N`); the live one also deletes the old app's `tasbeeh-vN` cache and its Whisper `transformers-cache`.
 - Pushing works from the normal shell (`git push origin main`); GitHub credentials are stored by Git Credential Manager. Commits are authored as Claude.
 
