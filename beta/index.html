@@ -214,6 +214,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
 .dots i.on{background:var(--bead)}
 
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:40;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.2)}
+.toast .tact{margin-left:12px;border:0;background:var(--bead);color:#1B1405;border-radius:8px;padding:6px 10px;font-weight:600;cursor:pointer}
 .update{width:100%;border:0;border-radius:12px;padding:12px;background:var(--primary);color:var(--on-primary);font-weight:600;margin:6px 0;cursor:pointer}
 .ver{font-size:12px;color:var(--muted);text-align:center;margin-top:24px}
 
@@ -295,10 +296,10 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
     <header class="top"><button class="icon" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="setTitle">Settings</h1></header>
     <h2>Counting by voice</h2>
     <div class="card">
-      <div class="row"><div class="grow"><b>Tune to my voice</b><small>Thirty seconds: stay quiet, then recite five times. Do this once, and again in a new place if counting feels off.</small></div><button class="btn sm main" id="tuneBtn">Start</button></div>
-      <div class="row"><div class="grow"><label for="sens"><b>Sensitivity</b></label><small id="sensTxt">How loud a sound must be to count. Lower it if noise gets counted.</small><input type="range" id="sens" min="0" max="100" step="1"></div></div>
-      <div class="row"><div class="grow"><label for="gap"><b>Pause between recitations</b></label><small id="gapTxt"></small><input type="range" id="gap" min="120" max="700" step="10"></div></div>
-      <div class="row"><div class="grow"><b>Split run-together recitations</b><small>If you recite without pausing, count by length instead. It learns your pace as you go.</small></div><input type="checkbox" class="sw" id="split" aria-label="Split run-together recitations"></div>
+      <div class="row"><div class="grow"><b id="teachName">Teach it this dhikr</b><small id="teachTxt"></small></div><button class="btn sm main" id="tuneBtn">Teach</button></div>
+      <div class="row"><div class="grow"><label for="sens"><b>Sensitivity</b></label><small id="sensTxt">Lower it if other sounds get counted; raise it if it misses you.</small><input type="range" id="sens" min="0" max="100" step="1"></div></div>
+      <div class="row"><div class="grow"><label for="gap"><b>Pause between recitations</b></label><small id="gapTxt"></small><input type="range" id="gap" min="200" max="700" step="10"></div></div>
+      <div class="row"><div class="grow"><b>Count recitations said without pauses</b><small>For adhkar that aren’t taught: a long stretch counts as several, by your usual length. Leave off if one slow recitation counts as more.</small></div><input type="checkbox" class="sw" id="split" aria-label="Count recitations said without pauses"></div>
     </div>
     <h2>Feedback</h2>
     <div class="card">
@@ -375,7 +376,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
     <p class="prose muted" id="tuneSub" style="text-align:center"></p>
     <div class="meterbox" aria-hidden="true"><i id="tuneLv"></i><u id="tuneThr" hidden></u></div>
     <div class="dots" id="tuneDots" aria-hidden="true"></div>
-    <div style="display:grid;gap:8px;margin-top:16px"><button class="btn main wide" id="tuneGo">Begin</button></div>
+    <div style="display:grid;gap:8px;margin-top:16px"><button class="btn main wide" id="tuneGo">Begin</button><button class="btn wide" id="tuneAlt" hidden>Not now</button></div>
   </div>
 </section>
 
@@ -395,8 +396,9 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
     <div class="prose">
       <p style="text-align:center" class="muted">Recite and it counts, with your phone face up beside you.</p>
       <ol class="steps">
-        <li><b>Tap the microphone</b> and allow access. Nothing is recorded or sent anywhere; it only measures how loud the room is.</li>
-        <li><b>Recite at your normal pace</b> with a short breath between each one. Each phrase becomes a bead.</li>
+        <li><b>Tap the microphone</b> and allow access. Everything stays on your phone; nothing is sent anywhere.</li>
+        <li><b>Teach it each dhikr once</b> by saying it 5 times. After that it only counts sounds like yours, so other voices and noise don’t count.</li>
+        <li><b>Recite at your normal pace.</b> Each recitation becomes a bead.</li>
         <li><b>Tap the beads</b> if it misses one, or <b>Undo</b> if it counts extra. You can also just tap to count.</li>
       </ol>
       <div id="welEnv"></div>
@@ -411,6 +413,7 @@ pre.diag{white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="adhkar.js"></script>
+<script src="voice.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

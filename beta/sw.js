@@ -1,7 +1,7 @@
 // Offline support for the beta. App files are network-first (so updates show up when online) with a cache fallback.
 // Fonts are cached as they load. Recordings are left to the browser: media players need range (206) responses.
-const CACHE = 'tasbeeh-beta-1';
-const CORE = ['./', './index.html', './app.js', './adhkar.js', './manifest.webmanifest', '../icon-180.png', '../icon-192.png', '../icon-512.png'];
+const CACHE = 'tasbeeh-beta-2';
+const CORE = ['./', './index.html', './app.js', './voice.js', './adhkar.js', './manifest.webmanifest', '../icon-180.png', '../icon-192.png', '../icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));

@@ -4,7 +4,7 @@
 
 // Bump on every deploy. The page compares it with the live copy when it opens or comes back to the foreground,
 // because phones resume home-screen apps from memory instead of reloading them.
-const APP_VERSION = 'b2';
+const APP_VERSION = 'b3';
 // Recordings not trimmed into this repo stream from the Hisn al-Muslim collection, pinned to one commit
 const AUDIO_CDN = 'https://cdn.jsdelivr.net/gh/rn0x/Adhkar-json@93dc3fc489e4291da8816265920b3cb7e2c3b569/audio/';
 const ROOT = location.pathname.includes('/beta/') ? '../' : './'; // the repo's audio/ and icons live at the site root
@@ -19,11 +19,14 @@ function load(k, d) { try { const v = localStorage.getItem(NS + k); return v == 
 function save(k, v) { try { localStorage.setItem(NS + k, JSON.stringify(v)); } catch (e) {} }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 
-const DEFAULTS = { sens: 55, gap: 260, split: true, vib: true, click: false, wake: true, showTr: true, showEn: true, auto: true };
+const DEFAULTS = { v: 2, sens: 50, gap: 350, split: false, vib: true, click: false, wake: true, showTr: true, showEn: true, auto: true };
 const S = Object.assign({}, DEFAULTS, load('settings', {}));
+// b1 split slow recitations into several counts and was too eager: reset the voice settings once
+if (S.v !== 2) Object.assign(S, { v: 2, sens: DEFAULTS.sens, gap: DEFAULTS.gap, split: false });
 const saveSettings = () => save('settings', S);
-// voice: learned pace. rate = ms of voice per Arabic letter; T = learned ms per recitation, per dhikr
-const V = Object.assign({ rate: 62, T: {} }, load('voice', {}));
+// voice: per dhikr, T = usual length of one recitation in ms (N = how many it has seen), skip = said no to teaching
+const V = Object.assign({ T: {}, N: {}, skip: {} }, load('voice', {}));
+if (V.rate) { V.T = {}; delete V.rate; } // lengths learned by b1 were distorted by its splitting
 const saveVoice = () => save('voice', V);
 
 // ---------- dhikr list ----------
@@ -85,7 +88,7 @@ function select(i, quiet) {
   if (i < 0 || i >= E.length) return;
   sayStop();
   cur = i; st.sel = E[i].key; save('state', st);
-  det && det.retime(expectedMs(E[i].k));
+  if (listening) arm();
   render();
   if (!quiet && listening) setStatus('Listening. Recite <b>' + esc(nameOf(E[i].k)) + '</b>.');
 }
@@ -188,70 +191,67 @@ function feedback() {
   }
 }
 
-// ---------- the rhythm detector ----------
-// Pure logic: fed one loudness reading (dBFS) per frame, returns how many recitations just finished.
-// A recitation is voiced time followed by a pause. Short dips inside a phrase are bridged; voiced time is added
-// up until it reaches about half the expected length, so long duas with breaths in them still count once.
-class Rhythm {
-  constructor(o) { this.o = Object.assign({ sens: 11, gap: 260, T: 650, minMs: 160, split: true }, o); this.reset(); }
-  reset() { this.floor = null; this.init = []; this.on = false; this.lastLoud = 0; this.runStart = 0; this.voiced = 0; this.acc = 0; this.peak = -120; this.peaks = []; }
-  retime(T) { this.o.T = T; this.acc = 0; this.voiced = 0; }
-  thresholds() { return { on: this.floor + this.o.sens, off: this.floor + this.o.sens * 0.6 }; }
-  push(db, ms, t) {
-    if (this.floor == null) { // learn the room for the first 300 ms
-      this.init.push(db); if (this.init.length < 15) return 0;
-      const s = this.init.slice().sort((a, b) => a - b); this.floor = s[Math.floor(s.length * 0.4)]; return 0;
-    }
-    const th = this.thresholds(), loud = db > (this.on ? th.off : th.on);
-    if (loud) {
-      if (!this.on) { this.on = true; this.runStart = t; this.peak = -120; }
-      this.voiced += ms; this.lastLoud = t; this.peak = Math.max(this.peak, db);
-      if (t - this.runStart > 12000 && this.voiced > 10000) { // a steady sound (fan, traffic), not recitation: adopt it as background
-        this.floor = db - 1; this.on = false; this.voiced = 0; this.acc = 0;
+// ---------- voice counting ----------
+// Sensitivity slider 0..100: how far above the room a sound must be (24..10 dB) and how loose a match may be.
+const sensDb = () => 24 - S.sens * 0.14;
+const matchMul = () => 0.85 + S.sens * 0.004;
+const samples = {}; // dhikr key -> {pos: [{id, f}], neg: [{id, f}]}; f = MFCC frames
+let calCache = {};
+const sampleSet = k => samples[k] || (samples[k] = { pos: [], neg: [] });
+const feats = x => Voice.template(x);
+const taught = k => !!(samples[k] && samples[k].pos.length >= 3);
+function addLocal(k, x, neg) { const r = { id: null, f: feats(x) }; sampleSet(k)[neg ? 'neg' : 'pos'].push(r); calCache = {}; return r; }
+async function saveSample(k, x, neg) {
+  const r = addLocal(k, x, neg);
+  try { r.id = await Voice.store.add({ k, neg: !!neg, a: Voice.toInt16(x), at: Date.now() }); } catch (e) {}
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+}
+async function dropSamples(k) {
+  const s = sampleSet(k);
+  for (const r of s.pos.concat(s.neg)) { try { if (r.id != null) await Voice.store.del(r.id); } catch (e) {} }
+  s.pos = []; s.neg = []; calCache = {};
+}
+async function loadSamples() {
+  try {
+    for (const r of await Voice.store.all()) { const x = addLocal(r.k, Voice.fromInt16(r.a), r.neg); x.id = r.id; }
+    if (!load('importedOld', false)) { // recordings made with "Train it on my voice" in the old app
+      const byName = {}; for (const [k, p] of Object.entries(P)) if (!p.custom && !byName[p.name]) byName[p.name] = k;
+      let n = 0;
+      for (const r of await Voice.oldSamples()) {
+        const neg = /#not$/.test(r.t || ''), k = byName[(r.t || '').replace(/#not$/, '')];
+        if (!k || !r.a) continue;
+        await saveSample(k, Voice.fromInt16(r.a), neg); n++;
       }
-      return 0;
+      save('importedOld', true);
+      if (n) toast('Brought over ' + n + ' voice recordings from the old app');
     }
-    if (this.on) {
-      if (t - this.lastLoud < this.o.gap) return 0; // a short dip inside the phrase
-      this.on = false; this.acc += this.voiced; this.voiced = 0; this.peaks.push(this.peak);
-      if (this.peaks.length > 20) this.peaks.shift();
-      return this.decide(false);
-    }
-    // quiet: follow the background down quickly and up slowly
-    this.floor += (db - this.floor) * (db < this.floor ? 0.25 : 0.004);
-    if (this.acc > 0 && t - this.lastLoud > this.longGap()) return this.decide(true);
-    return 0;
+  } catch (e) {}
+  render();
+}
+// Threshold for one dhikr. Other adhkar's recordings count as "not this", except phrases inside each other
+// (SubhanAllah / SubhanAllahi wa bihamdihi), which would otherwise reject each other.
+function calFor(k) {
+  if (k in calCache) return calCache[k];
+  const s = samples[k]; if (!s || s.pos.length < 3) return (calCache[k] = null);
+  const key = letters(P[k].ar) ? P[k].ar.replace(/[^ء-ي]/g, '') : '';
+  const neg = s.neg.map(r => r.f);
+  for (const [k2, s2] of Object.entries(samples)) {
+    if (k2 === k || !P[k2]) continue;
+    const key2 = (P[k2].ar || '').replace(/[^ء-ي]/g, '');
+    if (key && key2 && (key.includes(key2) || key2.includes(key))) continue;
+    for (const r of s2.pos.slice(-8)) neg.push(r.f);
   }
-  // how long a silence ends a recitation for sure: short phrases have no breaths inside, long duas do
-  longGap() { return Math.max(500, this.o.gap * 2.2, Math.min(1400, this.o.T * 0.25)); }
-  decide(final) {
-    const T = this.o.T, a = this.acc;
-    // Short phrases have no breaths inside, so every pause ends one: count anything longer than a cough.
-    // Long duas do have breaths, so after a normal pause wait for most of the expected length.
-    const need = T <= 2500 ? Math.max(this.o.minMs, T * 0.35) : final ? T * 0.4 : T * 0.8;
-    if (a < need) { if (final) { this.acc = 0; this.missed = a; } return 0; } // a cough or click, or a phrase still going
-    this.acc = 0; this.last = a;
-    if (!this.o.split || a < 1.75 * T) return 1;
-    return Math.min(12, Math.round(a / T));
-  }
+  return (calCache[k] = Voice.calibrate(s.pos.map(r => r.f), neg));
 }
-const sensDb = () => 22 - S.sens * 0.17; // slider 0..100 → 22..5 dB above the background
-function expectedMs(k) {
-  if (V.T[k]) return V.T[k];
-  const p = P[k], L = letters(p.ar) || Math.max(6, (p.name || '').replace(/[^A-Za-z]/g, '').length * 0.8);
-  return Math.max(320, Math.min(20000, L * V.rate));
-}
-function learn(k, ms) { // recitations counted once teach the expected length, slowly
-  const T0 = expectedMs(k), base = letters(P[k].ar) * V.rate || T0;
-  V.T[k] = Math.round(Math.max(base * 0.4, Math.min(base * 2.5, T0 * 0.8 + ms * 0.2)));
-  saveVoice();
-}
+function learnLen(k, ms) { V.T[k] = Math.round(V.T[k] ? V.T[k] * 0.8 + ms * 0.2 : ms); V.N[k] = (V.N[k] || 0) + 1; saveVoice(); }
 
 // ---------- microphone ----------
-let ctx = null, stream = null, node = null, src = null, listening = false, det = null, wake = null, muteUntil = 0, onFrame = null;
-const WORKLET = `class L extends AudioWorkletProcessor{constructor(){super();this.s=0;this.n=0;this.N=Math.round(sampleRate*0.02)}
-process(i){const c=i[0]&&i[0][0];if(c){for(let k=0;k<c.length;k++){this.s+=c[k]*c[k];if(++this.n>=this.N){this.port.postMessage(this.s/this.n);this.s=0;this.n=0}}}return true}}
-registerProcessor('level',L)`;
+let ctx = null, stream = null, node = null, front = null, listening = false, wake = null, muteUntil = 0, onFrame = null;
+let seg = null, match = null, segHit = false, lastHit = null, lastMiss = null;
+// the worklet only hands raw audio to the page; all analysis happens in voice.js
+const WORKLET = `class A extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}
+process(i){const c=i[0]&&i[0][0];if(c){for(let k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===2048){this.port.postMessage(this.b.slice(0));this.n=0}}}return true}}
+registerProcessor('tap',A)`;
 async function openMic() {
   if (!window.isSecureContext) throw Object.assign(new Error('insecure'), { name: 'Insecure' });
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('nomedia'), { name: 'NoMedia' });
@@ -263,22 +263,23 @@ async function openMic() {
   }
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   if (ctx.state === 'suspended') await ctx.resume();
-  src = ctx.createMediaStreamSource(stream);
+  const src = ctx.createMediaStreamSource(stream);
   // keep the voice band, drop rumble and hiss
-  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 100;
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3800;
   src.connect(hp); hp.connect(lp);
   const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
-  const frame = ms => { if (onFrame) onFrame(10 * Math.log10(ms + 1e-12), 20); };
+  front = new Voice.Front();
+  const rs = new Voice.Resampler(ctx.sampleRate), f = front;
+  const chunk = x => { const fs = f.push(rs.push(x)); if (onFrame) for (const fr of fs) onFrame(fr); };
   try {
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
     await ctx.audioWorklet.addModule(url);
-    node = new AudioWorkletNode(ctx, 'level');
-    node.port.onmessage = e => frame(e.data);
-  } catch (e) { // older browsers: ScriptProcessor, cut into 20 ms frames
-    node = ctx.createScriptProcessor(1024, 1, 1);
-    const N = Math.round(ctx.sampleRate * 0.02); let s = 0, n = 0;
-    node.onaudioprocess = ev => { const d = ev.inputBuffer.getChannelData(0); for (let i = 0; i < d.length; i++) { s += d[i] * d[i]; if (++n >= N) { frame(s / n); s = 0; n = 0; } } };
+    node = new AudioWorkletNode(ctx, 'tap');
+    node.port.onmessage = e => chunk(e.data);
+  } catch (e) { // older browsers
+    node = ctx.createScriptProcessor(2048, 1, 1);
+    node.onaudioprocess = ev => chunk(new Float32Array(ev.inputBuffer.getChannelData(0)));
   }
   lp.connect(node); node.connect(sink);
   stream.getAudioTracks()[0].onended = () => { if (listening) stop('The microphone was turned off by the phone. Tap the microphone to start again.'); };
@@ -287,7 +288,7 @@ function closeMic() {
   try { node && (node.port ? node.port.onmessage = null : node.onaudioprocess = null); } catch (e) {}
   try { stream && stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   try { ctx && ctx.close(); } catch (e) {}
-  ctx = stream = node = src = null; onFrame = null;
+  ctx = stream = node = null; onFrame = null;
 }
 async function keepAwake(on) {
   try {
@@ -295,52 +296,89 @@ async function keepAwake(on) {
     if (!on && wake) { await wake.release(); wake = null; }
   } catch (e) { wake = null; }
 }
-
-let levelPeak = -120;
+// (re)build the detectors for the current dhikr
+function arm() {
+  const k = E0().k, c = calFor(k);
+  match = c ? new Voice.Matcher(samples[k].pos.map(r => r.f), c.thr * matchMul()) : null;
+  // when matching, the recordings tell sounds apart, so quieter recitation may pass the loudness gate
+  if (seg) { seg.o.sens = match ? Math.max(9, sensDb() - 5) : sensDb(); seg.o.gap = S.gap; seg.cancel(); }
+  segHit = false; lastHit = lastMiss = null;
+  listenHint();
+}
+const teachBtn = label => '<button class="linkbtn" data-teach>' + (label || 'Teach it') + '</button>';
+function listenHint() {
+  const k = E0().k;
+  if (!listening) { $('hint').textContent = 'Tap the beads to count, or tap the microphone and recite.'; return; }
+  $('hint').innerHTML = match ? 'Counting sounds like your recordings of ' + esc(nameOf(k)) + '.'
+    : 'Counting by rhythm only, so other voices can count. ' + teachBtn('Teach it ' + esc(nameOf(k))) + ' to fix that.';
+}
+function listenMsg() { return 'Listening. Recite <b>' + esc(nameOf(E0().k)) + '</b>.'; }
+function onListen(fr) {
+  if (saying || performance.now() < muteUntil) { seg.cancel(); match && match.reset(); return; }
+  const s = seg.push(fr);
+  meter(fr);
+  if (match) {
+    const hit = match.push(fr, seg.speech);
+    if (hit) {
+      segHit = true; lastHit = { st: hit.st, en: hit.t, at: Date.now() }; lastMiss = null;
+      add(1, 'voice');
+      setStatus('Counted <span class="muted">· match ' + hit.s.toFixed(1) + ' of ' + match.thr.toFixed(1) + '</span>');
+    }
+    if (s && !s.rejected) {
+      if (!segHit && s.dur >= 250) {
+        lastMiss = { st: s.startF, en: s.endF, at: Date.now() };
+        if (match.segMin < match.thr * 1.4) setStatus('Heard something close but not counted <span class="muted">(' + match.segMin.toFixed(1) + ' of ' + match.thr.toFixed(1) + ')</span>. Tap the beads if it was one.');
+      }
+      segHit = false; match.segMin = Infinity;
+    }
+    return;
+  }
+  if (!s) return;
+  if (s.rejected) { setStatus('That was a long stretch of sound, so it wasn’t counted.'); return; }
+  // Not taught: count a stretch of voice about as long as this dhikr usually takes you
+  const k = E0().k, L = V.T[k], n = V.N[k] || 0, known = L && n >= 3;
+  const lo = known ? L * 0.45 : 280, hi = known ? L * 2.2 : 6000;
+  if (s.dur < lo || s.voicedMs < s.dur * 0.25) return; // a cough, click or clatter
+  if (s.dur > hi) {
+    if (S.split && known && n >= 5) { const m = Math.min(12, Math.round(s.dur / L)); add(m, 'voice'); setStatus('Counted ' + m + ' said without pauses.'); }
+    else setStatus('That was longer than usual, so it wasn’t counted. Pause briefly between recitations.');
+    return;
+  }
+  learnLen(k, s.dur); lastHit = { st: s.startF, en: s.endF, at: Date.now() };
+  add(1, 'voice');
+}
 async function start() {
+  const k = E0().k;
+  // a dhikr that's repeated is worth teaching first; ask once per dhikr
+  if (!taught(k) && target(E0()) >= 3 && !V.skip[k] && letters(P[k].ar) <= 160) { openTeach(k, true); return; }
   const mic = $('mic');
   mic.classList.add('busy'); setStatus('Starting the microphone…');
-  try {
-    await openMic();
-  } catch (e) {
-    mic.classList.remove('busy'); closeMic(); micError(e); return;
-  }
+  try { await openMic(); } catch (e) { mic.classList.remove('busy'); closeMic(); micError(e); return; }
   mic.classList.remove('busy');
-  det = new Rhythm({ sens: sensDb(), gap: S.gap, T: expectedMs(E0().k), split: S.split });
-  listening = true; levelPeak = -120;
+  seg = new Voice.Segmenter({ sens: sensDb(), gap: S.gap });
+  listening = true; arm();
   mic.classList.add('on'); mic.setAttribute('aria-pressed', 'true'); mic.setAttribute('aria-label', 'Stop counting by voice');
-  setStatus('Listening. Recite <b>' + esc(nameOf(E0().k)) + '</b>.');
-  $('hint').textContent = 'Recite with a short breath between each one.';
+  setStatus(listenMsg());
   keepAwake(true);
-  onFrame = (db, ms) => {
-    const t = performance.now();
-    if (saying || t < muteUntil) { det.on = false; det.voiced = 0; det.acc = 0; return; }
-    const n = det.push(db, ms, t);
-    meter(db);
-    if (n) {
-      const k = E0().k;
-      if (det.last) { learn(k, det.last / n); det.o.T = expectedMs(k); }
-      add(n, 'voice');
-      if (n > 1) setStatus('Counted ' + n + ' run together.');
-    }
-  };
-  try { save('micOk', true); } catch (e) {}
+  onFrame = onListen;
 }
 function stop(msg) {
-  listening = false; closeMic(); keepAwake(false); det = null;
+  listening = false; closeMic(); keepAwake(false); seg = match = null;
   const mic = $('mic'); mic.classList.remove('on'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', 'Start counting by voice');
   $('lv').style.transform = '';
   setStatus(typeof msg === 'string' ? msg : 'Stopped. Tap the microphone to carry on.');
-  $('hint').textContent = 'Tap the beads to count, or tap the microphone and recite.';
+  listenHint();
 }
 let mT = 0;
-function meter(db) {
+function meter(fr) {
   const now = performance.now(); if (now - mT < 50) return; mT = now;
-  const th = det.thresholds(), x = Math.max(0, Math.min(1, (db - det.floor) / (th.on - det.floor + 8)));
+  if (seg.floor == null) return;
+  const th = seg.thresholds(), x = Math.max(0, Math.min(1, (fr.db - seg.floor) / (th.on - seg.floor + 8)));
   $('lv').style.transform = 'scale(' + (0.92 + x * 0.22).toFixed(3) + ')';
-  $('lv').style.opacity = det.on ? 1 : 0.35 + x * 0.4;
+  $('lv').style.opacity = seg.speech ? 1 : 0.3 + x * 0.4;
 }
 $('mic').onclick = () => { listening ? stop() : start(); };
+document.addEventListener('click', e => { if (e.target.closest('[data-teach]')) openTeach(E0().k, false); });
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible') return;
   checkDay(); checkUpdate(); suggest();
@@ -421,7 +459,8 @@ async function diagnostics() {
     'Microphone permission: ' + perm,
     'Audio worklet: ' + (window.AudioWorkletNode ? 'yes' : 'no (fallback used)'),
     'Keep screen on: ' + ('wakeLock' in navigator ? 'supported' : 'not supported'),
-    'Voice settings: sensitivity ' + S.sens + ', pause ' + S.gap + ' ms, pace ' + V.rate + ' ms/letter',
+    'Voice settings: sensitivity ' + S.sens + ', pause ' + S.gap + ' ms, split ' + (S.split ? 'on' : 'off'),
+    'Taught adhkar: ' + (Object.entries(samples).filter(([, s]) => s.pos.length).map(([k, s]) => nameOf(k) + ' ' + s.pos.length + (s.neg.length ? '/-' + s.neg.length : '') + (calFor(k) ? ' (limit ' + calFor(k).thr.toFixed(1) + ')' : '')).join(', ') || 'none'),
     'Browser: ' + UA
   ];
   let verdict;
@@ -444,7 +483,7 @@ async function testMic() {
   try {
     await openMic();
     let floor = null, best = 0;
-    onFrame = db => { floor = floor == null ? db : Math.min(floor + 0.05, db < floor ? db : floor); const x = Math.max(0, Math.min(1, (db - floor) / 30)); best = Math.max(best, x); const el = $('diagLv'); if (el) el.style.width = (x * 100).toFixed(0) + '%'; };
+    onFrame = fr => { const db = fr.db; floor = floor == null ? db : Math.min(floor + 0.05, db < floor ? db : floor); const x = Math.max(0, Math.min(1, (db - floor) / 30)); best = Math.max(best, x); const el = $('diagLv'); if (el) el.style.width = (x * 100).toFixed(0) + '%'; };
     await new Promise(r => setTimeout(r, 6000));
     closeMic();
     $('diagMic').textContent = best > 0.3 ? 'It hears you. Test again' : 'Barely heard anything. Test again';
@@ -452,74 +491,95 @@ async function testMic() {
   testing = false; $('diagMic').disabled = false;
 }
 
-// ---------- tune to my voice ----------
-let tuning = null;
-function openTune() {
+// ---------- teach it a dhikr ----------
+// 2 s of quiet sets the room level, then 5 recitations become the recordings it matches against.
+let teaching = null;
+const median = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+function dots(n) { $('tuneDots').innerHTML = '<i></i><i></i><i></i><i></i><i></i>'; [...$('tuneDots').children].forEach((d, i) => d.classList.toggle('on', i < n)); }
+function openTeach(k, thenListen) {
   if (listening) stop();
-  tuning = null; $('tuneDots').innerHTML = ''; $('tuneThr').hidden = true; $('tuneLv').style.width = '0';
-  $('tuneMsg').textContent = 'Find a usual spot, then tap Begin';
-  $('tuneSub').textContent = 'First stay quiet for 3 seconds. Then recite ' + nameOf(E0().k) + ' five times at your normal pace.';
-  $('tuneGo').textContent = 'Begin'; $('tuneGo').disabled = false;
+  teaching = { k, thenListen };
+  const have = samples[k] ? samples[k].pos.length : 0, name = nameOf(k);
+  $('tuneTitle').textContent = 'Teach it ' + name;
+  $('tuneMsg').textContent = have >= 3 ? 'It already knows ' + have + ' of your recordings' : 'Teach it how you say this';
+  $('tuneSub').textContent = 'Stay quiet for 2 seconds, then say ' + name + ' 5 times with a short pause between each. After that it only counts sounds like yours, so other voices and noise don’t count.';
+  dots(0); $('tuneThr').hidden = true; $('tuneLv').style.width = '0';
+  $('tuneGo').textContent = have >= 3 ? 'Record 5 more' : 'Begin'; $('tuneGo').disabled = false; $('tuneGo').onclick = runTeach;
+  const alt = $('tuneAlt'); alt.hidden = false; delete alt.dataset.armed;
+  if (thenListen) { alt.textContent = 'Count without teaching'; alt.onclick = () => { V.skip[k] = true; saveVoice(); closeSheet(); start(); }; }
+  else if (have) {
+    alt.textContent = 'Forget these recordings';
+    alt.onclick = async () => {
+      if (alt.dataset.armed !== '1') { alt.dataset.armed = '1'; alt.textContent = 'Tap again to forget them'; return; }
+      await dropSamples(k); toast('Forgot the recordings of ' + name); closeSheet();
+    };
+  } else { alt.textContent = 'Not now'; alt.onclick = closeSheet; }
   openSheet('tune');
 }
-async function runTune() {
-  $('tuneGo').disabled = true;
+async function runTeach() {
+  const tc = teaching; if (!tc) return;
+  $('tuneGo').disabled = true; $('tuneAlt').hidden = true;
   try { await openMic(); } catch (e) { closeSheet(); micError(e); return; }
-  const k = E0().k, quiet = [], runs = [], gaps = [], peaks = [];
-  let phase = 'quiet', t0 = performance.now(), floor = 0, sens = 12, on = false, runStart = 0, lastLoud = 0, voiced = 0, endT = 0;
-  $('tuneMsg').textContent = 'Stay quiet…'; $('tuneSub').textContent = '3 seconds';
-  $('tuneDots').innerHTML = '<i></i><i></i><i></i><i></i><i></i>';
-  tuning = true;
+  const k = tc.k, name = nameOf(k), quiet = [], durs = [], gaps = [], peaks = [];
+  let t0 = null, phase = 'quiet', sg = null, lastEnd = null, got = 0, floor = 0;
+  tc.active = true;
+  $('tuneMsg').textContent = 'Stay quiet…'; dots(0);
   const finish = ok => {
-    onFrame = null; closeMic(); tuning = null; $('tuneGo').disabled = false; $('tuneGo').textContent = ok ? 'Done' : 'Try again';
-    $('tuneGo').onclick = ok ? closeSheet : runTune;
+    if (phase === 'done') return; phase = 'done';
+    onFrame = null; closeMic(); tc.active = false;
+    $('tuneGo').disabled = false; $('tuneAlt').hidden = false;
+    if (!ok) {
+      $('tuneMsg').textContent = got ? 'Only ' + got + ' heard clearly' : 'I couldn’t hear you clearly';
+      $('tuneSub').textContent = got ? 'It needs at least 3. Hold the phone a little closer and pause briefly between each.' : 'Check the microphone isn’t covered, or use Check my setup in Settings.';
+      $('tuneGo').textContent = 'Try again'; $('tuneGo').onclick = runTeach;
+      $('tuneAlt').textContent = 'Not now'; $('tuneAlt').onclick = closeSheet;
+      return;
+    }
+    // sensitivity halfway between the room and your voice; pause about half your usual breath
+    const want = Math.max(10, Math.min(24, Math.min(tc.sens, (median(peaks) - floor) * 0.5)));
+    S.sens = Math.round(Math.max(0, Math.min(100, (24 - want) / 0.14)));
+    if (gaps.length) S.gap = Math.round(Math.max(250, Math.min(600, median(gaps) * 0.6)) / 10) * 10;
+    V.T[k] = Math.round(median(durs)); V.N[k] = Math.max(V.N[k] || 0, 3);
+    saveVoice(); saveSettings(); calCache = {};
+    const c = calFor(k);
+    $('tuneMsg').textContent = 'Ready';
+    $('tuneSub').textContent = 'It now counts only sounds like your ' + samples[k].pos.length + ' recordings of ' + name + '. If it misses one, tap the beads and it will offer to learn from it; if it counts something wrong, Undo teaches it that too.' + (c && c.minNeg < c.thr * 1.2 ? ' It sounds close to another dhikr you taught, so it will be strict.' : '');
+    $('tuneGo').textContent = 'Start counting'; $('tuneGo').onclick = () => { closeSheet(); start(); };
+    $('tuneAlt').textContent = 'Done'; $('tuneAlt').onclick = closeSheet;
   };
-  onFrame = (db, ms) => {
-    const t = performance.now();
-    $('tuneLv').style.width = Math.max(0, Math.min(100, (db + 90) * 1.4)).toFixed(0) + '%';
+  onFrame = fr => {
+    if (t0 == null) t0 = fr.i;
+    const el = (fr.i - t0) * 10;
+    $('tuneLv').style.width = Math.max(0, Math.min(100, (fr.db + 90) * 1.4)).toFixed(0) + '%';
     if (phase === 'quiet') {
-      quiet.push(db);
-      $('tuneSub').textContent = Math.max(1, Math.ceil(3 - (t - t0) / 1000)) + ' seconds';
-      if (t - t0 > 3000) {
-        const s = quiet.slice(5).sort((a, b) => a - b);
-        floor = s[Math.floor(s.length * 0.5)]; const noisy = s[Math.floor(s.length * 0.95)];
-        sens = Math.max(8, noisy - floor + 6);
-        phase = 'speak'; t0 = t;
-        $('tuneThr').hidden = false; $('tuneThr').style.left = Math.max(0, Math.min(100, (floor + sens + 90) * 1.4)) + '%';
-        $('tuneMsg').textContent = 'Now recite ' + nameOf(k) + ' five times'; $('tuneSub').textContent = 'At your normal pace, with a breath between each.';
+      quiet.push(fr.db);
+      $('tuneSub').textContent = Math.max(1, Math.ceil((2000 - el) / 1000)) + '…';
+      if (el >= 2000) {
+        const s = quiet.slice(10).sort((a, b) => a - b);
+        floor = s[Math.floor(s.length * 0.5)];
+        tc.sens = Math.max(12, Math.min(24, s[Math.floor(s.length * 0.95)] - floor + 9));
+        sg = new Voice.Segmenter({ sens: tc.sens, gap: 300 }); sg.floor = floor;
+        $('tuneThr').hidden = false; $('tuneThr').style.left = Math.max(0, Math.min(100, (floor + tc.sens + 90) * 1.4)) + '%';
+        phase = 'speak'; t0 = fr.i;
+        $('tuneMsg').textContent = 'Now say ' + name; $('tuneSub').textContent = '1 of 5';
+        $('tuneGo').textContent = 'Finish'; $('tuneGo').onclick = () => finish(got >= 3);
       }
       return;
     }
-    const loud = db > floor + (on ? sens * 0.6 : sens);
-    if (loud) { if (!on) { on = true; runStart = t; if (endT) gaps.push(t - endT); peaks.push(db); } voiced += ms; lastLoud = t; peaks[peaks.length - 1] = Math.max(peaks[peaks.length - 1], db); }
-    else if (on && t - lastLoud > 220) {
-      on = false; endT = lastLoud;
-      if (voiced > 150) { runs.push(voiced); const d = $('tuneDots').children[Math.min(4, runs.length - 1)]; d && d.classList.add('on'); }
-      else { gaps.pop(); peaks.pop(); }
-      voiced = 0;
-    }
-    if (runs.length >= 5 || t - t0 > 25000) {
-      phase = 'done';
-      if (runs.length < 3) {
-        $('tuneMsg').textContent = 'I couldn’t hear you clearly';
-        $('tuneSub').textContent = runs.length ? 'Only ' + runs.length + ' heard. Hold the phone closer or speak a little louder.' : 'Check the microphone isn’t covered, or use Check my setup.';
-        finish(false); return;
-      }
-      const med = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
-      const T = med(runs), g = gaps.length ? med(gaps) : 400, pk = med(peaks);
-      // threshold halfway between the room and your voice; pause about half your usual breath
-      S.sens = Math.round(Math.max(0, Math.min(100, (22 - Math.max(5, Math.min(22, (pk - floor) * 0.45))) / 0.17)));
-      S.gap = Math.round(Math.max(140, Math.min(600, g * 0.55)) / 10) * 10;
-      const L = letters(P[k].ar); if (L) V.rate = Math.round(Math.max(30, Math.min(140, T / L)));
-      V.T[k] = Math.round(T); saveVoice(); saveSettings(); fillSettings();
-      $('tuneMsg').textContent = 'Tuned to your voice';
-      $('tuneSub').textContent = 'About ' + (T / 1000).toFixed(1) + ' s per recitation, with ' + (g / 1000).toFixed(1) + ' s breaths. Other adhkar are timed from your pace.';
-      finish(true);
-    }
+    if (phase !== 'speak') return;
+    if (el > 45000) return finish(got >= 3);
+    const s = sg.push(fr);
+    if (!s || s.rejected || s.dur < 250 || s.voicedMs < s.dur * 0.25) return;
+    const x = front.clip(Math.max(0, s.startF - 5), s.endF + 5); if (!x) return;
+    const y = Voice.trim(x); if (y.length < Voice.SR * 0.25) return;
+    saveSample(k, y, false); got++;
+    durs.push(s.dur); peaks.push(s.peak); if (lastEnd != null) gaps.push((s.startF - lastEnd) * 10); lastEnd = s.endF;
+    dots(got); $('tuneSub').textContent = got < 5 ? (got + 1) + ' of 5' : '';
+    if (got >= 3) $('tuneGo').disabled = false;
+    if (got >= 5) finish(true);
   };
 }
-$('tuneGo').onclick = runTune;
-$('tuneBtn').onclick = () => { closeSheet(); openTune(); };
+$('tuneBtn').onclick = () => { closeSheet(); openTeach(E0().k, false); };
 
 // ---------- pronunciation ----------
 let saying = false;
@@ -539,7 +599,7 @@ function sayStop() {
   if (!saying) return;
   saying = false; muteUntil = performance.now() + 500; sayIcon();
   sayAudio.onended = sayAudio.onerror = null; try { sayAudio.pause(); } catch (e) {}
-  if (det) det.acc = 0;
+  if (seg) seg.cancel(); if (match) match.reset();
 }
 function playList(urls, i) {
   if (!saying) return;
@@ -617,7 +677,7 @@ function openSheet(id) {
 }
 function closeSheet() {
   if (!openId) return;
-  if (openId === 'tune' && tuning) { onFrame = null; closeMic(); tuning = null; }
+  if (openId === 'tune' && teaching && teaching.active) { onFrame = null; closeMic(); teaching.active = false; }
   if (openId === 'help' && testing) { closeMic(); testing = false; }
   $(openId).hidden = true; openId = null; document.body.style.overflow = '';
   if (returnFocus && returnFocus.focus) returnFocus.focus({ preventScroll: true }); returnFocus = null;
@@ -633,8 +693,26 @@ addEventListener('keydown', e => {
 });
 
 // ---------- controls ----------
-$('ring').onclick = () => add(1, 'tap');
-$('undo').onclick = () => { add(-1, 'tap'); if (lastAdd && lastAdd.how === 'voice') setStatus('Undone. If noise keeps counting, lower the sensitivity in Settings.'); lastAdd = null; };
+// Corrections teach the matcher: a tap just after an uncounted sound offers to save it as a recording,
+// and undoing a voice count saves that sound as "not this" (only when the dhikr is taught).
+const fresh = h => h && Date.now() - h.at < 15000;
+function clipOf(h) { const x = front && front.clip(Math.max(0, h.st - 5), h.en + 5); if (!x) return null; const y = Voice.trim(x); return y.length >= Voice.SR * 0.25 && y.length <= Voice.SR * 8 ? y : null; }
+$('ring').onclick = () => {
+  add(1, 'tap');
+  if (!listening || !match || !fresh(lastMiss)) return;
+  const x = clipOf(lastMiss), k = E0().k; lastMiss = null; if (!x) return;
+  toast('Missed one? Save that sound as a recording of ' + nameOf(k) + '.', 'Save it', async () => { await saveSample(k, x, false); arm(); toast('Saved. It knows ' + samples[k].pos.length + ' recordings now.'); });
+};
+$('undo').onclick = async () => {
+  const wasVoice = lastAdd && lastAdd.how === 'voice';
+  add(-1, 'tap'); lastAdd = null;
+  if (!wasVoice) return;
+  if (listening && match && fresh(lastHit)) {
+    const x = clipOf(lastHit), k = E0().k; lastHit = null;
+    if (x) { await saveSample(k, x, true); arm(); setStatus('Undone. It will be stricter about that sound.'); return; }
+  }
+  setStatus('Undone. ' + (match ? '' : 'Teaching it this dhikr stops other sounds counting. ' + teachBtn()));
+};
 let resetArm = 0;
 $('reset').onclick = () => {
   const e = E0(); if (!count(e)) return;
@@ -662,11 +740,14 @@ function fillSettings() {
   $('gapTxt').textContent = 'Counts after ' + (S.gap / 1000).toFixed(2) + ' s of quiet. Raise it if one long phrase counts as two.';
   $('target').value = target(E0()); $('targetTxt').textContent = nameOf(E0().k) + ' · usually ' + E0().n;
   $('vibNote').hidden = !IOS; $('ver').textContent = APP_VERSION;
+  const k = E0().k, n = samples[k] ? samples[k].pos.length : 0;
+  $('teachName').textContent = 'Teach it ' + nameOf(k);
+  $('teachTxt').textContent = n >= 3 ? 'Taught with ' + n + ' of your recordings. Only sounds like them count.' : 'Not taught yet, so it counts by rhythm and other voices can count. Say it 5 times to fix that.';
+  $('tuneBtn').textContent = n >= 3 ? 'Manage' : 'Teach';
 }
 for (const id of ['split', 'vib', 'click', 'wake', 'showTr', 'showEn', 'auto']) $(id).onchange = () => { S[id] = $(id).checked; saveSettings(); if (id === 'wake') keepAwake(listening); };
-$('sens').oninput = () => { S.sens = +$('sens').value; saveSettings(); if (det) det.o.sens = sensDb(); };
-$('gap').oninput = () => { S.gap = +$('gap').value; saveSettings(); fillSettings(); if (det) det.o.gap = S.gap; };
-$('split').addEventListener('change', () => { if (det) det.o.split = S.split; });
+$('sens').oninput = () => { S.sens = +$('sens').value; saveSettings(); if (listening) arm(); };
+$('gap').oninput = () => { S.gap = +$('gap').value; saveSettings(); fillSettings(); if (listening) arm(); };
 $('target').onchange = () => { const e = E0(), v = Math.max(1, Math.min(10000, parseInt($('target').value) || e.n)); if (v === e.n) delete st.n[e.key]; else st.n[e.key] = v; saveState(); fillSettings(); };
 $('resetDay').onclick = () => { if (Date.now() - resetArm > 2500) { resetArm = Date.now(); toast('Tap again to reset all of today’s counts'); return; } resetArm = 0; st.c = {}; saveState(); render(); toast('Today’s counts reset'); };
 
@@ -796,7 +877,11 @@ $('update').onclick = () => location.reload();
 // ---------- status & toast ----------
 function setStatus(html, err) { const s = $('status'); s.innerHTML = html; s.classList.toggle('err', !!err); }
 let toastT = 0;
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); }
+function toast(msg, act, fn) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT);
+  if (act) { const b = document.createElement('button'); b.className = 'tact'; b.textContent = act; b.onclick = () => { t.hidden = true; fn(); }; t.appendChild(b); }
+  toastT = setTimeout(() => { t.hidden = true; }, act ? 9000 : 2600);
+}
 
 // ---------- first run ----------
 function welcome() {
@@ -812,9 +897,9 @@ function welcome() {
 
 // ---------- start ----------
 // test hook: feed the detector synthetic loudness frames (used by the developer, harmless otherwise)
-window.__tasbeeh = { Rhythm, expectedMs, P, E: () => E, go: key => select(E.findIndex(e => e.key === key)) };
+window.__tasbeeh = { Voice, P, E: () => E, go: key => select(E.findIndex(e => e.key === key)), samples, calFor };
 document.documentElement.dataset.ready = '1';
-render(); suggest(); showEnvBanner();
+render(); suggest(); showEnvBanner(); loadSamples();
 if (!load('welcomed', false)) welcome();
 addEventListener('load', checkUpdate);
 micPermission().then(p => { if (p === 'denied') setStatus('The microphone is blocked for this site. <button class="linkbtn" data-help>How to fix</button>', true); });

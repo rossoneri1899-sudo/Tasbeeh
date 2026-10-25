@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Voice engine tests</title>
+<!-- Synthetic-audio checks for beta/voice.js. Serve the repo root (python -m http.server) and open /tools/voice-test.html. -->
+<style>body{font:15px/1.5 system-ui;margin:24px}td{padding:2px 12px 2px 0}.f{color:#a00;font-weight:600}.p{color:#060}</style>
+<h1>Voice engine tests</h1>
+<table id="out"><tr><td>Running…</td></tr></table>
+<script src="../beta/voice.js"></script>
+<script>
+const V = Voice, SR = 16000;
+let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+// a vowel: harmonics of f0 shaped by two formants, with a little pitch drift
+function vowel(ms, f0, F1, F2, amp, jit) {
+  const n = Math.round(ms * SR / 1000), x = new Float32Array(n); let ph = 0;
+  const f = f0 * (1 + (jit || 0) * (rnd() - 0.5));
+  for (let i = 0; i < n; i++) {
+    const env = Math.min(1, i / 400, (n - i) / 400); ph += 2 * Math.PI * f * (1 + 0.03 * Math.sin(i / 900)) / SR; let s = 0;
+    for (let h = 1; h * f < 3800; h++) { const fh = h * f, g = Math.exp(-((fh - F1) ** 2) / (2 * 120 ** 2)) + 0.7 * Math.exp(-((fh - F2) ** 2) / (2 * 180 ** 2)) + 0.02; s += g * Math.sin(h * ph) / h ** 0.3; }
+    x[i] = amp * env * s * 0.15;
+  }
+  return x;
+}
+const noise = (ms, amp) => Float32Array.from({ length: Math.round(ms * SR / 1000) }, () => (rnd() * 2 - 1) * amp);
+const sil = ms => noise(ms, 0.0008);
+const cat = parts => { const n = parts.reduce((a, p) => a + p.length, 0), o = new Float32Array(n); let k = 0; for (const p of parts) { o.set(p, k); k += p.length; } return o; };
+const mix = (a, b) => Float32Array.from(a, (v, i) => v + (b[i % b.length] || 0));
+// "phrase A" and "phrase B" have different vowel shapes, like SubhanAllah and Alhamdulillah
+const A = (sp = 1, j = 0.06, amp = 1) => cat([vowel(150 * sp, 130, 320, 800, amp, j), noise(50 * sp, 0.05 * amp), vowel(160 * sp, 140, 700, 1200, amp, j), noise(40 * sp, 0.04 * amp), vowel(220 * sp, 125, 650, 1100, amp, j), vowel(260 * sp, 120, 600, 1000, 0.9 * amp, j)]);
+const B = (sp = 1, j = 0.06) => cat([vowel(180 * sp, 135, 300, 2300, 1, j), vowel(200 * sp, 130, 500, 1800, 1, j), noise(40 * sp, 0.04), vowel(160 * sp, 140, 350, 2000, 1, j), vowel(240 * sp, 125, 450, 1700, 0.9, j)]);
+const rep = (f, n, pause) => cat([sil(500)].concat(...Array.from({ length: n }, () => [f(), sil(pause)])).concat([sil(1200)]));
+
+function segs(audio) { const s = new V.Segmenter({ sens: 17, gap: 350 }); let n = 0; for (const fr of V.frames(audio)) { const r = s.push(fr); if (r && !r.rejected && r.dur >= 280 && r.voicedMs >= r.dur * 0.25) n++; } return n; }
+// templates are made the way the app makes them: a recording with a little silence around it
+const tpl = [A(), A(1.1), A(0.92), A(1.05), A()].map(x => V.template(cat([sil(80), x, sil(80)])));
+const negs = [B(), B(1.1)].map(x => V.template(cat([sil(80), x, sil(80)])));
+const cal = V.calibrate(tpl, negs);
+function matches(audio, mul = 1.05, sens = 12) { const s = new V.Segmenter({ sens, gap: 350 }), m = new V.Matcher(tpl, cal.thr * mul); let n = 0; for (const fr of V.frames(audio)) { s.push(fr); if (m.push(fr, s.speech)) n++; } return n; }
+const tv = cat(Array.from({ length: 12 }, (_, i) => cat([vowel(120 + rnd() * 200, 180 + rnd() * 60, 300 + rnd() * 500, 900 + rnd() * 1400, 0.6, 0.1), sil(40 + rnd() * 120)])));
+
+const tests = [
+  ['Segmenter: 5 recitations with pauses', () => segs(rep(A, 5, 450)), 5],
+  ['Segmenter: slow recitation counts once each (no splitting)', () => segs(rep(() => A(2.6), 3, 500)), 3],
+  ['Segmenter: hiss/noise bursts', () => segs(cat([sil(500), noise(400, 0.3), sil(600), noise(300, 0.3), sil(600), noise(500, 0.25), sil(1000)])), 0],
+  ['Segmenter: clatter (clicks)', () => segs(cat([sil(500)].concat(...Array.from({ length: 8 }, () => [noise(15, 0.6), sil(180)])), [sil(1000)])), 0],
+  ['Match: 10 recitations', () => matches(rep(A, 10, 450)), 10],
+  ['Match: 33 recitations, varied speed', () => matches(cat([sil(500)].concat(...Array.from({ length: 33 }, () => [A(0.85 + rnd() * 0.35), sil(300 + rnd() * 300)])), [sil(1200)])), 33],
+  ['Match: 5 back-to-back, no pauses', () => matches(cat([sil(500), A(), A(1.05), A(0.95), A(), A(1.02), sil(1500)])), 5],
+  ['Match: slow (1.6x)', () => matches(rep(() => A(1.6), 3, 500)), 3],
+  ['Match: quieter voice (-12 dB)', () => matches(rep(() => A(1, 0.06, 0.25), 5, 450)), 5],
+  ['Match: with background hiss (about 30 dB below the voice)', () => matches(mix(rep(A, 5, 450), noise(3000, 0.005)), 1.05, 11), 5],
+  ['Match: similar sounds (same vowels, other order)', () => matches(rep(() => cat([vowel(260, 120, 600, 1000, 0.9, 0.06), vowel(150, 130, 320, 800, 1, 0.06), vowel(220, 125, 650, 1100, 1, 0.06), vowel(160, 140, 700, 1200, 1, 0.06)]), 5, 450)), 0],
+  ['Match: one syllable different', () => matches(rep(() => cat([vowel(150, 130, 320, 800, 1, 0.06), noise(50, 0.05), vowel(160, 140, 300, 2200, 1, 0.06), noise(40, 0.04), vowel(220, 125, 650, 1100, 1, 0.06), vowel(260, 120, 600, 1000, 0.9, 0.06)]), 5, 450)), 0],
+  ['Match: highest sensitivity still rejects other speech', () => matches(cat([sil(500), tv, sil(400), tv, sil(1000)]), 1.25), 0],
+  ['Match: a different dhikr', () => matches(rep(B, 10, 450)), 0],
+  ['Match: other speech (random vowels, like a TV)', () => matches(cat([sil(500), tv, sil(400), tv, sil(1000)])), 0],
+  ['Match: noise bursts', () => matches(cat([sil(500), noise(400, 0.3), sil(600), noise(300, 0.3), sil(1000)])), 0],
+];
+const rows = tests.map(([name, fn, want]) => { const got = fn(); return `<tr><td class="${got === want ? 'p' : 'f'}">${got === want ? 'pass' : 'FAIL'}</td><td>${name}</td><td>got ${got}, want ${want}</td></tr>`; });
+const pass = rows.filter(r => r.includes('"p"')).length;
+document.getElementById('out').innerHTML = `<tr><td colspan=3><b>${pass}/${tests.length} pass</b> · threshold ${cal.thr.toFixed(2)} (samples ${cal.lo.toFixed(2)}–${cal.hi.toFixed(2)}, closest other ${cal.minNeg.toFixed(2)})</td></tr>` + rows.join('');
+window.result = { pass, total: tests.length };
+</script>
