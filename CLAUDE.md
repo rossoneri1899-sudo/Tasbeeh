@@ -14,7 +14,7 @@ The app is being rebuilt in `beta/`, published at `…/Tasbeeh/beta/`, while the
 - **Recordings:** the 16 trimmed files in `audio/` are used where they exist; 144 more stream on demand from jsDelivr (`AUDIO_CDN`, pinned to an rn0x commit). Those are untrimmed, so some start with the spoken chapter title. Quran duas play the full verse from everyayah.com.
 - **Storage:** `localStorage` keys prefixed `tb2.` so the old app on the same origin is unaffected. On first run the old `history` is imported so streaks continue. Counts reset at local midnight; history keeps 800 days.
 - **Versioning:** bump `APP_VERSION` in `beta/app.js` (the update check reads `app.js`), and `CACHE` in `beta/sw.js` when caching rules change.
-- After-prayer tasbeeh follows Hisn al-Muslim (33/33/33 then La ilaha illallah once). The old app used 33/33/34; the owner hasn't been asked yet.
+- After-prayer tasbeeh is 33/33/34 (the owner's choice), not Hisn al-Muslim's 33/33/33 + La ilaha illallah.
 
 ## Constraints (read first)
 

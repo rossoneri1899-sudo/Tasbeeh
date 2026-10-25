@@ -457,8 +457,8 @@ Q = [
 CATS = [
     {"id": "tasbeeh", "group": "Every day", "name": "Tasbeeh", "note": "Short phrases to repeat any time. These count best by voice.",
      "items": [[sub, 33], [ham, 33], [akb, 34], [tah, 100], [ast, 100], [sbh, 100], [sbz, 100], [szm, 100], [bqy, 100], [hwl, 100], [whd, 100], [atb, 100], [sal, 100], [sic, 100], [hsb, 100], [yun, 100], [adk, 3]]},
-    {"id": "salah", "group": "Every day", "name": "After prayer", "note": "After each obligatory prayer. 33 each of SubhanAllah, Alhamdulillah and Allahu Akbar, then La ilaha illallah once to complete 100 (Muslim).",
-     "items": [[ast, 3], [ap_ist, 1], [ap67, 1], [ap68, 1], [sub, 33], [ham, 33], [akb, 33], [ap69, 1], [ap71, 1], [ap70, 1], [ap72, 10], [ap73, 1]]},
+    {"id": "salah", "group": "Every day", "name": "After prayer", "note": "After each obligatory prayer. SubhanAllah 33, Alhamdulillah 33 and Allahu Akbar 34 (Muslim, from Ka‘b ibn ‘Ujrah).",
+     "items": [[ast, 3], [ap_ist, 1], [ap67, 1], [ap68, 1], [sub, 33], [ham, 33], [akb, 34], [ap71, 1], [ap70, 1], [ap72, 10], [ap73, 1]]},
     {"id": "am", "group": "Every day", "name": "Morning", "note": "From Fajr until sunrise.",
      "items": [[m["75"], 1], [m["76"], 3], [m["77"], 1], [m["78"], 1], [m["79"], 1], [m["80"], 4], [m["81"], 1], [m["82"], 3], [m["83"], 7], [m["84"], 1], [m["85"], 1], [m["86"], 3], [m["87"], 3], [m["88"], 1], [m["89"], 1], [m["90"], 1], [sbh, 100], [m["92"], 10], [whd, 100], [adk, 3], [m["95"], 1], [atb, 100], [salw, 10]]},
     {"id": "pm", "group": "Every day", "name": "Evening", "note": "From Asr until sunset.",
