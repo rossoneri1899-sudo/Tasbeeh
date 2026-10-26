@@ -4,7 +4,7 @@
 
 // Bump on every deploy. The page compares it with the live copy when it opens or comes back to the foreground,
 // because phones resume home-screen apps from memory instead of reloading them.
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 // Recordings not trimmed into this repo stream from the Hisn al-Muslim collection, pinned to one commit
 const AUDIO_CDN = 'https://cdn.jsdelivr.net/gh/rn0x/Adhkar-json@93dc3fc489e4291da8816265920b3cb7e2c3b569/audio/';
 const ROOT = location.pathname.includes('/beta/') ? '../' : './'; // the repo's audio/ and icons live at the site root
@@ -19,7 +19,7 @@ function load(k, d) { try { const v = localStorage.getItem(NS + k); return v == 
 function save(k, v) { try { localStorage.setItem(NS + k, JSON.stringify(v)); } catch (e) {} }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 
-const DEFAULTS = { v: 2, sens: 50, gap: 350, split: false, whisper: false, vib: true, click: false, wake: true, showTr: true, showEn: true, auto: true };
+const DEFAULTS = { v: 2, sens: 50, gap: 350, longGap: 1600, split: false, whisper: false, vib: true, click: false, wake: true, showTr: true, showEn: true, auto: true };
 const S = Object.assign({}, DEFAULTS, load('settings', {}));
 // b1 split slow recitations into several counts and was too eager: reset the voice settings once
 if (S.v !== 2) Object.assign(S, { v: 2, sens: DEFAULTS.sens, gap: DEFAULTS.gap, split: false });
@@ -331,10 +331,14 @@ function arm() {
   const k = sk(E0().k), c = calFor(k);
   match = c ? new Voice.Matcher(samples[k].pos.map(r => r.f), c.thr * matchMul()) : null;
   // when matching, the recordings tell sounds apart, so quieter recitation may pass the loudness gate
-  if (seg) { seg.o.sens = match ? Math.max(9, sensDb() - 5) : sensDb(); seg.o.gap = S.gap; seg.cancel(); }
+  // counting by rhythm, a long dua needs a longer pause to end (breaths between verses) and more room before
+  // a stretch is "too long"; when matching, pauses don't decide anything
+  const rp = rhythmFor(E0().k);
+  if (seg) { seg.o.sens = match ? Math.max(9, sensDb() - 5) : sensDb(); seg.o.gap = match ? S.gap : rp.gap; seg.o.maxMs = match ? 12000 : rp.maxMs; seg.cancel(); }
   segHit = false; lastHit = lastMiss = null;
   listenHint();
 }
+const rhythmFor = k => Voice.rhythmParams(letters(P[base(k)].ar), { gap: S.gap, longGap: S.longGap, T: V.T[k], n: V.N[k] || 0 });
 const teachBtn = label => '<button class="linkbtn" data-teach>' + (label || 'Teach it') + '</button>';
 const canLearn = k => letters(P[base(k)].ar) <= 160; // longer duas are too varied to match; they count by rhythm
 function listenHint() {
@@ -347,9 +351,10 @@ function listenHint() {
     return;
   }
   const others = voiceProfile() ? 'Voices that don’t sound like you are ignored.' : 'Until then, other voices can count.';
+  const rp = rhythmFor(k), pause = rp.long ? ' It counts when you pause for ' + (rp.gap / 1000).toFixed(1) + ' s at the end.' : '';
   $('hint').innerHTML = canLearn(k)
-    ? 'Learning how you say it: ' + (pend[k] || []).length + ' of ' + LEARN_N + '. ' + others + ' ' + teachBtn('Teach it now')
-    : 'Counting by rhythm. ' + others;
+    ? 'Learning how you say it: ' + (pend[k] || []).length + ' of ' + LEARN_N + '.' + pause + ' ' + others + ' ' + teachBtn('Teach it now')
+    : 'Long dua, counted by rhythm.' + pause + ' ' + (voiceProfile() ? others : 'Other voices can count, so keep it quiet around you.');
 }
 function listenMsg() { return 'Listening. Recite <b>' + esc(nameOf(E0().k)) + '</b>.'; }
 const fbuf = new Array(1500); // last 15 s of frames, for judging a whole stretch of sound
@@ -383,18 +388,24 @@ function onListen(fr) {
     if (s.dur >= 250 && s.dur <= 8000) { lastWhisper = { st: s.startF, en: s.endF, at: Date.now() }; setStatus('Heard a whisper. Tap the beads if that was one.'); }
     return;
   }
-  // Not taught: count a stretch of voice about as long as this dhikr usually takes you
-  const k = E0().k, L = V.T[k], n = V.N[k] || 0, known = L && n >= 3;
-  const lo = known ? L * 0.45 : 280, hi = known ? L * 2.2 : 6000;
-  if (s.dur < lo || s.voicedMs < s.dur * 0.25) return; // a cough, click or clatter
+  // Not taught: count a stretch of voice about as long as this dhikr takes (see Voice.rhythmParams)
+  const k = E0().k, L = V.T[k], n = V.N[k] || 0, rp = rhythmFor(k), { lo, hi } = rp;
+  if (s.dur < lo || s.voicedMs < s.dur * 0.25) { // a cough, click or clatter; or only part of a long dua
+    if (rp.long && s.dur >= 1500) setStatus('Heard part of it, not counted. Pause for ' + (rp.gap / 1000).toFixed(1) + ' s only at the end of the dua.');
+    return;
+  }
   if (s.dur > hi) {
-    if (S.split && known && n >= 5) { const m = Math.min(12, Math.round(s.dur / L)); add(m, 'voice'); setStatus('Counted ' + m + ' said without pauses.'); }
+    // A long dua is always about the same length, so a stretch of two or three times its learned length is
+    // two or three recitations with too short a pause between them. (Short adhkar vary too much for this.)
+    if (rp.long && L && n >= 2) { const m = Math.min(5, Math.round(s.dur / L)); add(m, 'voice'); setStatus('Counted ' + m + ' recited with short pauses between them.'); }
+    else if (S.split && !rp.long && L && n >= 5) { const m = Math.min(12, Math.round(s.dur / L)); add(m, 'voice'); setStatus('Counted ' + m + ' said without pauses.'); }
     else setStatus('That was longer than usual, so it wasn’t counted. Pause briefly between recitations.');
     return;
   }
   if (Voice.soundsLikeUser(voiceProfile(), framesOf(s)) === false) { setStatus('That didn’t sound like your voice, so it wasn’t counted.'); return; }
   learnLen(k, s.dur); lastHit = { st: s.startF, en: s.endF, at: Date.now(), learn: true };
   add(1, 'voice');
+  if (rp.long) { const p = rhythmFor(k); seg.o.gap = p.gap; seg.o.maxMs = p.maxMs; } // its own length is now part of the rule
   if (canLearn(k)) {
     const x = clipOf(lastHit);
     if (x) { (pend[k] = pend[k] || []).push({ x, at: Date.now() }); learnFromPending(k).then(listenHint); }
@@ -761,7 +772,7 @@ addEventListener('keydown', e => {
 // Corrections teach the matcher: a tap just after an uncounted sound offers to save it as a recording,
 // and undoing a voice count saves that sound as "not this" (only when the dhikr is taught).
 const fresh = h => h && Date.now() - h.at < 15000;
-function clipOf(h) { const x = front && front.clip(Math.max(0, h.st - 5), h.en + 5); if (!x) return null; const y = Voice.trim(x); return y.length >= Voice.SR * 0.25 && y.length <= Voice.SR * 8 ? y : null; }
+function clipOf(h) { const x = front && front.clip(Math.max(0, h.st - 5), h.en + 5); if (!x) return null; const y = Voice.trim(x); return y.length >= Voice.SR * 0.25 && y.length <= Voice.SR * 11.5 ? y : null; } // the Front keeps 12 s
 $('ring').onclick = () => {
   add(1, 'tap');
   const k = sk(E0().k);
@@ -814,8 +825,9 @@ $('diagBtn').onclick = () => { diagnostics(); openSheet('help'); };
 // ---------- settings ----------
 function fillSettings() {
   for (const id of ['split', 'whisper', 'vib', 'click', 'wake', 'showTr', 'showEn', 'auto']) $(id).checked = !!S[id];
-  $('sens').value = S.sens; $('gap').value = S.gap;
-  $('gapTxt').textContent = 'Counts after ' + (S.gap / 1000).toFixed(2) + ' s of quiet. Raise it if one long phrase counts as two.';
+  $('sens').value = S.sens; $('gap').value = S.gap; $('longGap').value = S.longGap;
+  $('gapTxt').textContent = 'Short adhkar count after ' + (S.gap / 1000).toFixed(2) + ' s of quiet. Raise it if one phrase counts as two.';
+  $('longGapTxt').textContent = 'Long duas like Ayat al-Kursi count after up to ' + (S.longGap / 1000).toFixed(1) + ' s of quiet, so breaths between verses don’t count. Raise it if you pause longer between verses.';
   const changed = Object.keys(st.n).length;
   $('targetTxt').textContent = 'Set your own count for this dhikr, this list or everything, or count with no limit.' + (changed ? ' ' + changed + ' changed from the usual.' : '');
   $('vibNote').hidden = !IOS; $('ver').textContent = APP_VERSION;
@@ -836,6 +848,7 @@ for (const id of ['split', 'whisper', 'vib', 'click', 'wake', 'showTr', 'showEn'
 };
 $('sens').oninput = () => { S.sens = +$('sens').value; saveSettings(); if (listening) arm(); };
 $('gap').oninput = () => { S.gap = +$('gap').value; saveSettings(); fillSettings(); if (listening) arm(); };
+$('longGap').oninput = () => { S.longGap = +$('longGap').value; saveSettings(); fillSettings(); if (listening) arm(); };
 // ---------- targets ----------
 let tgtScope = 'one';
 const scopeEntries = () => tgtScope === 'all' ? E : tgtScope === 'cat' ? entriesOf(E0().cat) : [E0()];

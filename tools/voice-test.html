@@ -94,6 +94,33 @@ tests.push(
   ['Whisper: hiss bursts', () => wmatches(cat([sil(500), noise(400, 0.05), sil(600), noise(600, 0.04), sil(600), noise(300, 0.06), sil(1000)])), 0],
   ['Whisper: other people talking (voiced)', () => wmatches(cat([sil(500), tv, sil(400), tv, sil(1000)])), 0],
 );
+// Rhythm counting as the app does it (Voice.rhythmParams + the same checks and length learning), for a dhikr
+// of L Arabic letters. Default settings: 0.35 s pause, 1.6 s for long duas.
+function rhythmCount(audio, L) {
+  const st = { T: 0, n: 0 }, par = () => V.rhythmParams(L, { gap: 350, longGap: 1600, T: st.T, n: st.n });
+  let p = par(); const s = new V.Segmenter({ sens: 17, gap: p.gap, maxMs: p.maxMs }); let n = 0;
+  for (const fr of V.frames(audio)) {
+    const r = s.push(fr); if (!r || r.rejected) continue;
+    if (r.dur < p.lo || r.voicedMs < r.dur * 0.25) continue;
+    if (r.dur > p.hi) { if (p.long && st.T && st.n >= 2) n += Math.min(5, Math.round(r.dur / st.T)); continue; }
+    n++; st.T = st.T ? st.T * 0.8 + r.dur * 0.2 : r.dur; st.n++;
+    if (p.long) { p = par(); s.o.gap = p.gap; s.o.maxMs = p.maxMs; }
+  }
+  return n;
+}
+// a long dua (about 300 letters, like the 3 Quls): 4 verses of about 2.4 s with breaths between them
+const verse = () => cat([A(1.6), A(1.4)]);
+const longDua = (b = 600) => cat([verse(), sil(b), verse(), sil(b * 0.9), verse(), sil(b * 1.1), verse()]);
+// a medium dhikr (about 60 letters, like SubhanAllahi wa bihamdihi ‘adada khalqihi): one breath inside
+const medium = () => cat([A(1.3), sil(300), A(1.2)]);
+tests.push(
+  ['Long dua: 3 recitations with breaths between verses', () => rhythmCount(cat([sil(500), longDua(), sil(2000), longDua(), sil(2000), longDua(), sil(2500)]), 300), 3],
+  ['Long dua: longer breaths (1 s) between verses', () => rhythmCount(cat([sil(500), longDua(1000), sil(2200), longDua(1000), sil(2500)]), 300), 2],
+  ['Long dua: a single verse alone doesn’t count', () => rhythmCount(cat([sil(500), verse(), sil(2500)]), 300), 0],
+  ['Long dua: 2 with clear pauses, then 2 with only 1 s between', () => rhythmCount(cat([sil(500), longDua(), sil(2200), longDua(), sil(2200), longDua(), sil(1000), longDua(), sil(2500)]), 300), 4],
+  ['Medium dhikr: 3 recitations, 1 s apart', () => rhythmCount(cat([sil(500), medium(), sil(1000), medium(), sil(1000), medium(), sil(2000)]), 60), 3],
+  ['Short dhikr: 10 recitations, 0.45 s apart (unchanged)', () => rhythmCount(rep(A, 10, 450), 9), 10],
+);
 const rows = tests.map(([name, fn, want]) => { const got = fn(); return `<tr><td class="${got === want ? 'p' : 'f'}">${got === want ? 'pass' : 'FAIL'}</td><td>${name}</td><td>got ${got}, want ${want}</td></tr>`; });
 const pass = rows.filter(r => r.includes('"p"')).length;
 document.getElementById('out').innerHTML = `<tr><td colspan=3><b>${pass}/${tests.length} pass</b> · threshold ${cal.thr.toFixed(2)} (samples ${cal.lo.toFixed(2)}–${cal.hi.toFixed(2)}, closest other ${cal.minNeg.toFixed(2)})</td></tr>` + rows.join('');

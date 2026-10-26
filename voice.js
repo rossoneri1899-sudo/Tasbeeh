@@ -145,6 +145,19 @@ const Voice = (() => {
     cancel() { this.active = false; }
   }
 
+  // How rhythm counting treats a dhikr, from its length in Arabic letters (L). Long duas have breaths between
+  // verses, so a recitation only ends after a longer pause (up to o.longGap), and it must be roughly as long as
+  // the dua, so one verse can't count as the whole dua. o = {gap, longGap, T: learned length in ms, n: times seen}.
+  function rhythmParams(L, o) {
+    const long = L > 50, est = L * 70; // ms for a brisk recitation
+    const gap = long ? Math.max(o.gap, Math.min(o.longGap, L * 12)) : o.gap;
+    let lo, hi;
+    if (o.T && o.n >= (long ? 2 : 3)) { lo = o.T * (long ? 0.5 : 0.45); hi = o.T * (long ? 1.8 : 2.2); }
+    else if (long) { lo = Math.max(280, est * 0.45); hi = Math.max(6000, est * 4); }
+    else { lo = 280; hi = 6000; }
+    return { long, gap, lo, hi, maxMs: Math.max(12000, hi * 1.3) };
+  }
+
   // ---- DTW matching against the user's own recordings ----
   function dist(a, b) { let s = 0; for (let i = 0; i < NCEP; i++) { const d = a[i] - b[i]; s += d * d; } return Math.sqrt(s); }
   function newPath(f) { const M = f.length; return { f, D: new Float64Array(M + 1).fill(Infinity), L: new Int32Array(M + 1), S: new Int32Array(M + 1) }; }
@@ -278,5 +291,5 @@ const Voice = (() => {
       };
     });
   }
-  return { SR, Resampler, Front, frames, template, Segmenter, Matcher, calibrate, bestScore, voiceStats, profile, voiceDist, soundsLikeUser, consistent, trim, toInt16, fromInt16, store, oldSamples };
+  return { SR, Resampler, Front, frames, template, Segmenter, rhythmParams, Matcher, calibrate, bestScore, voiceStats, profile, voiceDist, soundsLikeUser, consistent, trim, toInt16, fromInt16, store, oldSamples };
 })();
